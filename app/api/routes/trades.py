@@ -8,7 +8,7 @@ from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
-@router.post("", response_model=CreateTradeResponse)
+@router.post("/", response_model=CreateTradeResponse)
 def create_trade(body: CreateTradeBody, user_id: str = Depends(get_current_user_id)):
     tid = insert_trade(user_id, body.note or "", body.takenAt)
     return CreateTradeResponse(tradeId=tid)
