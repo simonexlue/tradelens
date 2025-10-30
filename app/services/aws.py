@@ -1,14 +1,22 @@
 import os, uuid, base64
 from datetime import datetime, timezone
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from ..core.config import settings
 
+region = settings.AWS_REGION
+
 s3 = boto3.client(
     "s3",
-    region_name=settings.AWS_REGION,
+    region_name=region,
     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
     aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    endpoint_url=f"https://s3.{region}.amazonaws.com",  # force regional endpoint
+    config=Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "virtual"}  # <bucket>.s3.<region>.amazonaws.com
+    ),
 )
 
 def now_utc(): return datetime.now(timezone.utc)
