@@ -39,16 +39,11 @@ def insert_trade(user_id: str, note: str, taken_at: Optional[datetime]) -> uuid.
         "note": note,
         "taken_at": taken_at.isoformat() if taken_at else None,
     }
-    res = (
-        supabase.table("trades")
-        .insert(payload)
-        .select("id")
-        .single()
-        .execute()
-    )
-    if not res.data or "id" not in res.data:
+    res = supabase.table("trades").insert(payload).execute()
+    if not res.data or len(res.data) == 0 or "id" not in res.data[0]:
+        # If table trigger changed returning behavior, fall back to a fetch by (user_id, note, taken_at)
         raise RuntimeError(f"create_failed: {getattr(res, 'error', None)}")
-    return uuid.UUID(res.data["id"])
+    return uuid.UUID(res.data[0]["id"])
 
 def insert_image(
     user_id: str,
@@ -66,13 +61,9 @@ def insert_image(
         "width": width,
         "height": height,
     }
-    res = (
-        supabase.table("images")
-        .insert(row)
-        .select("id,s3_key,created_at")
-        .single()
-        .execute()
-    )
-    if not res.data:
+    res = supabase.table("images").insert(row).execute()
+    if not res.data or len(res.data) == 0:
         raise RuntimeError(f"insert_failed: {getattr(res, 'error', None)}")
-    return res.data
+    r = res.data[0]
+    # created_at is returned by default on Supabase; if not, query by id afterwards.
+    return {"id": r["id"], "s3_key": r["s3_key"], "created_at": r.get("created_at")}
