@@ -4,6 +4,8 @@ from typing import Optional
 
 from supabase import create_client, Client
 from ..core.config import settings
+from postgrest import APIError
+from fastapi import HTTPException
 
 supabase: Optional[Client] = None
 
@@ -58,12 +60,31 @@ def insert_image(
         "trade_id": str(trade_id),
         "s3_key": key,
         "content_type": content_type,
-        "width": width,
-        "height": height,
     }
-    res = supabase.table("images").insert(row).execute()
-    if not res.data or len(res.data) == 0:
-        raise RuntimeError(f"insert_failed: {getattr(res, 'error', None)}")
-    r = res.data[0]
-    # created_at is returned by default on Supabase; if not, query by id afterwards.
-    return {"id": r["id"], "s3_key": r["s3_key"], "created_at": r.get("created_at")}
+    if width is not None:
+        row["width"] = width
+    if height is not None:
+        row["height"] = height
+
+    try:
+        res = supabase.table("images").insert(row).execute()
+    except APIError as e:
+        print("Supabase insert failed:", e)
+        raise HTTPException(status_code=400, detail=f"DB insert failed: {getattr(e, 'message', str(e))}")
+
+    data = res.data or []
+    if not data:
+        raise HTTPException(status_code=500, detail="DB insert returned no data")
+
+    rec = data[0]
+    # Return a plain JSON-able dict 
+    return {
+        "id": rec["id"],
+        "user_id": rec.get("user_id"),
+        "trade_id": rec.get("trade_id"),
+        "s3_key": rec.get("s3_key"),
+        "content_type": rec.get("content_type"),
+        "width": rec.get("width"),
+        "height": rec.get("height"),
+        "created_at": rec.get("created_at"),
+    }

@@ -1,14 +1,14 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from .common import AllowedContentType
 
 class CreateImageBody(BaseModel):
     key: str
-    contentType: AllowedContentType
-    width: Optional[int] = Field(default=None, ge=1)
-    height: Optional[int] = Field(default=None, ge=1)
+    contentType: str
+    width: Optional[int] = None 
+    height: Optional[int] = None
 
 class CreateImageResponse(BaseModel):
     imageId: uuid.UUID
