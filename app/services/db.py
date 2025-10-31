@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Dict, List
 
 from supabase import create_client, Client
 from ..core.config import settings
@@ -87,4 +87,122 @@ def insert_image(
         "width": rec.get("width"),
         "height": rec.get("height"),
         "created_at": rec.get("created_at"),
+    }
+
+def fetch_trades_for_user(
+    user_id: str,
+    limit: int,
+    after: Optional[Dict[str, str]] = None,  # {"created_at": ISO, "id": uuid-string}
+) -> List[Dict]:
+    """
+    Returns rows shaped for the frontend list:
+    [
+      {
+        "id": "...",
+        "note": "...",
+        "created_at": "2025-10-31T19:23:11.123Z",
+        "images": [{"s3_key": "...", "width": 1200, "height": 800}],  # zero or one (thumbnail)
+        "image_count": 3
+      },
+      ...
+    ]
+    Pagination: keyset on (created_at desc, id desc)
+    """
+
+    # 1) Base query for trades owned by user (ordered newest first)
+    q = (
+        supabase.table("trades")
+        .select("id, note, created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .order("id", desc=True)
+    )
+
+    # 2) Keyset pagination: created_at < cursor.created_at OR (created_at = cursor.created_at AND id < cursor.id)
+    if after:
+        created = after["created_at"]
+        tid = after["id"]
+        # PostgREST supports boolean OR via .or_("cond1,cond2")
+        # Combine the two AND branches as separate groups
+        q = q.or_(
+            f"and(created_at.lt.{created}),and(created_at.eq.{created},id.lt.{tid})"
+        )
+
+    q = q.limit(limit)
+    trades_res = q.execute()
+    trade_rows = trades_res.data or []
+
+    if not trade_rows:
+        return []
+
+    # 3) Fetch images for these trades in one go (no aggregates)
+    trade_ids = [str(r["id"]) for r in trade_rows]
+    imgs_res = (
+        supabase.table("images")
+        .select("trade_id, s3_key, width, height, created_at")
+        .in_("trade_id", trade_ids)
+        .order("created_at", desc=False)  # oldest first 
+        .execute()
+    )
+    image_rows = imgs_res.data or []
+
+    # 4) Build maps: first image per trade + per-trade counts
+    first_map: Dict[str, Dict] = {}
+    count_map: Dict[str, int] = {}
+
+    for img in image_rows:
+        tid = str(img["trade_id"])
+        count_map[tid] = count_map.get(tid, 0) + 1
+        if tid not in first_map:
+            first_map[tid] = {
+                "s3_key": img["s3_key"],
+                "width": img.get("width"),
+                "height": img.get("height"),
+            }
+
+    # 5) Shape response
+    shaped: List[Dict] = []
+    for r in trade_rows:
+        tid = str(r["id"])
+        shaped.append(
+            {
+                "id": tid,
+                "note": r.get("note"),
+                "created_at": r.get("created_at"),
+                "images": [first_map[tid]] if tid in first_map else [],
+                "image_count": int(count_map.get(tid, 0)),
+            }
+        )
+
+    return shaped
+
+
+def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]:
+    trade = (
+        supabase.table("trades")
+        .select("id, user_id, note, created_at")
+        .eq("id", str(trade_id))
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not trade:
+        return None
+
+    imgs = (
+        supabase.table("images")
+        .select("s3_key, width, height, created_at")
+        .eq("trade_id", str(trade_id))
+        .order("created_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+    return {
+        "id": str(trade["id"]),
+        "note": trade.get("note"),
+        "created_at": trade.get("created_at"),
+        "images": imgs,  # [{s3_key,width,height,created_at}, ...]
     }
