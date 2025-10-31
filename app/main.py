@@ -8,9 +8,11 @@ app = FastAPI(title="TradeLens Backend (Phase 3)")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.FRONTEND_ORIGINS,
+    allow_origin_regex=r"^https?://localhost(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(uploads.router)
