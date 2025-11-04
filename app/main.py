@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.config import settings
-from .api.routes import uploads, trades
+from .api.routes import uploads, trades, images
 
 app = FastAPI(title="TradeLens Backend (Phase 3)")
 
@@ -17,6 +17,7 @@ app.add_middleware(
 
 app.include_router(uploads.router)
 app.include_router(trades.router)
+app.include_router(images.router)
 
 @app.get("/health")
 def health():
