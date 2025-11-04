@@ -134,15 +134,13 @@ def update_trade(
     trade_id: uuid.UUID = Path(...),
     user_id: str = Depends(get_current_user_id),
 ):
-    # If this raises, FastAPI returns 404/403 appropriately
+    # 1) Ensure the user owns this trade (raise if not)
     check_trade_belongs_to_user(trade_id, user_id)
 
-    row = update_trade_note(user_id=user_id, trade_id=trade_id, note=body.note or "")
-    if row is None:
-        # Either no matching row, or PostgREST returned minimal (fixed by .select("*"))
-        raise HTTPException(status_code=404, detail="trade_not_found")
+    # 2) Update
+    update_trade_note(user_id=user_id, trade_id=trade_id, note=body.note or "")
 
-    # Return the normalized shape your frontend expects
+    # 3) Re-fetch canonical shape for the frontend
     trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="trade_not_found")

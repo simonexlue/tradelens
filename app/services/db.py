@@ -209,15 +209,13 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
 
 def update_trade_note(*, user_id: str, trade_id: uuid.UUID, note: str) -> Optional[Dict[str, Any]]:
     """
-    Updates the note for a trade the user owns and returns the updated row.
-    IMPORTANT: PostgREST returns empty data for UPDATE unless .select("*") is chained.
+    Update the note. We don't rely on return data here.
     """
     res = (
         supabase.table("trades")
         .update({"note": note})
         .eq("id", str(trade_id))
         .eq("user_id", user_id)
-        .select("*")
         .execute()
     )
     if not res.data:
