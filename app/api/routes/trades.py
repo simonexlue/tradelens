@@ -1,14 +1,15 @@
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from ...schemas.trades import CreateTradeBody, CreateTradeResponse
+from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody
 from ...schemas.images import CreateImageBody, CreateImageResponse
 from ...services.db import (
     insert_trade, 
     insert_image, 
     check_trade_belongs_to_user, 
     fetch_trades_for_user, 
-    fetch_trade_with_images
+    fetch_trade_with_images,
+    update_trade_note
     )
 from ..deps import get_current_user_id
 import base64
@@ -125,3 +126,37 @@ def create_image_trailing(
     user_id: str = Depends(get_current_user_id),
 ):
     return create_image(body, trade_id, user_id)
+
+#----------------------------------------- PUT -----------------------------------------
+@router.put("/{trade_id}")
+def update_trade(
+    body: UpdateTradeBody,
+    trade_id: uuid.UUID = Path(...),
+    user_id: str = Depends(get_current_user_id),
+):
+    # Verify ownership (404 if trade absent or not owned)
+    if not check_trade_belongs_to_user(trade_id, user_id):
+        # ^ if your helper raises instead of returning bool, just call it and let it raise
+        raise HTTPException(status_code=404, detail="trade_not_found")
+
+    # Persist update
+    row = update_trade_note(user_id=user_id, trade_id=trade_id, note=body.note or "")
+    if row is None:
+        # In case the row was deleted between the ownership check and update
+        raise HTTPException(status_code=404, detail="trade_not_found")
+
+    # Return the normalized trade shape your frontend expects
+    trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
+    if not trade:
+        # Shouldn't happen, but guards the frontend contract
+        raise HTTPException(status_code=404, detail="trade_not_found")
+
+    return trade
+
+@router.put("/{trade_id}/", include_in_schema=False)
+def update_trade_trailing(
+    body: UpdateTradeBody,
+    trade_id: uuid.UUID = Path(...),
+    user_id: str = Depends(get_current_user_id),
+):
+    return update_trade(body=body, trade_id=trade_id, user_id=user_id)

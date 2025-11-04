@@ -206,3 +206,19 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "created_at": trade.get("created_at"),
         "images": imgs,  # [{s3_key,width,height,created_at}, ...]
     }
+
+def update_trade_note(*, user_id:str, trade_id: uuid.UUID, note:str):
+    """
+    Updates the note for a trade the user owns.
+    Return the updated row (or None if not found).
+    """
+    # Example using Supabase Python client:
+    res = supabase.table("trades") \
+        .update({"note": note}) \
+        .eq("id", str(trade_id)) \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if not res.data:
+        return None
+    return res.data[0]

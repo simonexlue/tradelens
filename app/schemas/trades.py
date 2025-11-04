@@ -9,3 +9,6 @@ class CreateTradeBody(BaseModel):
 
 class CreateTradeResponse(BaseModel):
     tradeId: uuid.UUID
+
+class UpdateTradeBody(BaseModel):
+    note: str = Field("", description="Updated note for the trade")
