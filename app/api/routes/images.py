@@ -1,23 +1,23 @@
-from fastapi import APIRouter, Header, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 import boto3, urllib.parse, mimetypes, botocore
 
 from ...services import db
 from ...core.config import settings
-from ..deps import get_current_user_id
+from ...core.auth import verify_supabase_token
 
 router = APIRouter(prefix="/images", tags=["images"])
 
 s3 = boto3.client("s3", region_name=settings.AWS_REGION)
 BUCKET = settings.AWS_S3_BUCKET
-if not BUCKET: 
+if not BUCKET:
     raise RuntimeError("AWS_S3_BUCKET is missing from env/config")
 
 @router.get("/{key:path}")
 def stream_image(
     key: str,
-    user_id: str = Depends(get_current_user_id),
-    fit: str | None = Query(None)
+    user_id: str = Depends(verify_supabase_token),
+    fit: str | None = Query(None),
 ):
     """
     Streams a private S3 object after verifying ownership in Supabase.
@@ -25,7 +25,7 @@ def stream_image(
     """
     decoded_key = urllib.parse.unquote(key, encoding="utf-8", errors="strict")
 
-    # Auth: ensure the requesting user owns this image
+    # Check ownership via DB (images table)
     res = (
         db.supabase.table("images")
         .select("user_id")
@@ -38,8 +38,8 @@ def stream_image(
         raise HTTPException(status_code=404, detail="image_not_found")
     if rec["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="forbidden")
-    
-    # Fetch from S3 and stream
+
+    # Fetch and stream from S3
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=decoded_key)
     except botocore.exceptions.ClientError as e:
