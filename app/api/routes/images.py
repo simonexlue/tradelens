@@ -8,10 +8,21 @@ from ...core.auth import verify_supabase_token
 
 router = APIRouter(prefix="/images", tags=["images"])
 
-s3 = boto3.client("s3", region_name=settings.AWS_REGION)
-BUCKET = settings.AWS_S3_BUCKET
-if not BUCKET:
+if not settings.AWS_S3_BUCKET:
     raise RuntimeError("AWS_S3_BUCKET is missing from env/config")
+
+if not (settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY):
+    raise RuntimeError("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY missing from env/config")
+
+s3 = boto3.client(
+    "s3",
+    region_name=settings.AWS_REGION,
+    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+)
+
+BUCKET = settings.AWS_S3_BUCKET
+
 
 @router.get("/{key:path}")
 def stream_image(

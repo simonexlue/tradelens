@@ -6,7 +6,8 @@ uvicorn[standard]>=0.30.0,<0.31
 boto3>=1.34.0
 
 # --- Supabase stack (works with httpx constraint below) ---
-supabase>=2.7.2
+supabase>=2.24.0
+websockets>=13,<16
 
 # httpx needs to satisfy supabase-auth/functions: >=0.26,<0.29 and include http2 extra
 httpx[http2]>=0.26,<0.29

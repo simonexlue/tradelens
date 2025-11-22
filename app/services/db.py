@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 supabase: Optional[Client] = None
 
+
 def _init_supabase() -> Client:
     # Fail fast if env is missing
     if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
@@ -17,9 +18,11 @@ def _init_supabase() -> Client:
         )
     return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
+
 # initialize once at import time
 supabase = _init_supabase()
 print("Supabase client initialized – DB writes enabled")
+
 
 def check_trade_belongs_to_user(trade_id: uuid.UUID, user_id: str) -> None:
     res = (
@@ -35,6 +38,7 @@ def check_trade_belongs_to_user(trade_id: uuid.UUID, user_id: str) -> None:
     if data["user_id"] != user_id:
         raise PermissionError("trade_not_owned")
 
+
 def insert_trade(user_id: str, note: str, taken_at: Optional[datetime]) -> uuid.UUID:
     payload = {
         "user_id": user_id,
@@ -46,6 +50,7 @@ def insert_trade(user_id: str, note: str, taken_at: Optional[datetime]) -> uuid.
         # If table trigger changed returning behavior, fall back to a fetch by (user_id, note, taken_at)
         raise RuntimeError(f"create_failed: {getattr(res, 'error', None)}")
     return uuid.UUID(res.data[0]["id"])
+
 
 def insert_image(
     user_id: str,
@@ -70,14 +75,17 @@ def insert_image(
         res = supabase.table("images").insert(row).execute()
     except APIError as e:
         print("Supabase insert failed:", e)
-        raise HTTPException(status_code=400, detail=f"DB insert failed: {getattr(e, 'message', str(e))}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"DB insert failed: {getattr(e, 'message', str(e))}",
+        )
 
     data = res.data or []
     if not data:
         raise HTTPException(status_code=500, detail="DB insert returned no data")
 
     rec = data[0]
-    # Return a plain JSON-able dict 
+    # Return a plain JSON-able dict
     return {
         "id": rec["id"],
         "user_id": rec.get("user_id"),
@@ -88,6 +96,7 @@ def insert_image(
         "height": rec.get("height"),
         "created_at": rec.get("created_at"),
     }
+
 
 def fetch_trades_for_user(
     user_id: str,
@@ -141,7 +150,7 @@ def fetch_trades_for_user(
         supabase.table("images")
         .select("trade_id, s3_key, width, height, created_at")
         .in_("trade_id", trade_ids)
-        .order("created_at", desc=False)  # oldest first 
+        .order("created_at", desc=False)  # oldest first
         .execute()
     )
     image_rows = imgs_res.data or []
@@ -207,7 +216,10 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "images": imgs,  # [{s3_key,width,height,created_at}, ...]
     }
 
-def update_trade_note(*, user_id: str, trade_id: uuid.UUID, note: str) -> Optional[Dict[str, Any]]:
+
+def update_trade_note(
+    *, user_id: str, trade_id: uuid.UUID, note: str
+) -> Optional[Dict[str, Any]]:
     """
     Update the note. We don't rely on return data here.
     """
