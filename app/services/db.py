@@ -201,7 +201,7 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
 
     imgs = (
         supabase.table("images")
-        .select("s3_key, width, height, created_at")
+        .select("id, s3_key, width, height, created_at")  # 🔹 add id
         .eq("trade_id", str(trade_id))
         .order("created_at", desc=False)
         .execute()
@@ -213,7 +213,7 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "id": str(trade["id"]),
         "note": trade.get("note"),
         "created_at": trade.get("created_at"),
-        "images": imgs,  # [{s3_key,width,height,created_at}, ...]
+        "images": imgs,  # [{id,s3_key,width,height,created_at}, ...]
     }
 
 
@@ -233,3 +233,39 @@ def update_trade_note(
     if not res.data:
         return None
     return res.data[0]
+
+def get_image_for_trade(
+        *, user_id: str, trade_id: uuid.UUID, image_id: uuid.UUID
+) -> Dict[str, Any]:
+    """
+    Fetch a single image row, ensuring it belongs to the given trade and user.
+    Raises LookupError if not found, PermissionError if user mismatch.
+    """
+    res = (
+        supabase.table("images")
+        .select("id, user_id, trade_id, s3_key")
+        .eq("id", str(image_id))
+        .eq("trade_id", str(trade_id))
+        .single()
+        .execute()
+    )
+
+    data = res.data or {}
+    if not data:
+        raise LookupError("image_not_found")
+
+    if data.get("user_id") != user_id:
+        raise PermissionError("image_not_owned")
+
+    return data
+
+def delete_image_record(*, image_id: uuid.UUID) -> None:
+    """
+    Delete the image row from the images table.
+    """
+    res = (
+        supabase.table("images")
+        .delete()
+        .eq("id", str(image_id))
+        .execute()
+    )

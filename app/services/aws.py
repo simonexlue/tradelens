@@ -35,3 +35,12 @@ def presign_put(key: str, content_type: str, expires: int = 900) -> str:
         )
     except (BotoCoreError, ClientError) as e:
         raise RuntimeError(f"presign_failed: {e}")
+
+def delete_object(key: str) -> None:
+    """
+    Delete an object from S3 by key.
+    """
+    try:
+        s3.delete_object(Bucket=settings.AWS_S3_BUCKET, Key=key)
+    except (BotoCoreError, ClientError) as e:
+        print(f"Failed to delete S3 object {key}: {e}")

@@ -10,8 +10,11 @@ from ...services.db import (
     fetch_trades_for_user,
     fetch_trade_with_images,
     update_trade_note,
+    get_image_for_trade,
+    delete_image_record,
 )
 from ...core.auth import verify_supabase_token
+from ...services.aws import delete_object
 
 import base64
 import json
@@ -137,3 +140,40 @@ def update_trade_trailing(
     user_id: str = Depends(verify_supabase_token),
 ):
     return update_trade(body=body, trade_id=trade_id, user_id=user_id)
+
+
+# ----------------------------------------- DELETE IMAGE -----------------------------------------
+@router.delete("/{trade_id}/images/{image_id}", status_code=204)
+def delete_image(
+    trade_id: uuid.UUID = Path(...),
+    image_id: uuid.UUID = Path(...),
+    user_id: str = Depends(verify_supabase_token),
+):
+    # Ensure the trade belongs to the user
+    check_trade_belongs_to_user(trade_id, user_id)
+
+    # Fetch image row + ownership
+    try:
+        img_row = get_image_for_trade(
+            user_id=user_id,
+            trade_id=trade_id,
+            image_id=image_id,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="image_not_found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    s3_key = img_row["s3_key"]
+
+    # 1) Delete from DB
+    delete_image_record(image_id=image_id)
+
+    # 2) Delete from S3
+    try:
+        delete_object(s3_key)
+    except Exception as e:
+        # Log but don't block user
+        print("Failed to delete S3 object", s3_key, e)
+
+    return
