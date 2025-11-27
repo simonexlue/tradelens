@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody
 from ...schemas.images import CreateImageBody, CreateImageResponse
+from ...schemas.analysis import AnalysisResponse, AnalyzeTradeBody
 from ...services.db import (
     insert_trade,
     insert_image,
@@ -12,9 +13,11 @@ from ...services.db import (
     update_trade_note,
     get_image_for_trade,
     delete_image_record,
+    insert_trade_analysis
 )
 from ...core.auth import verify_supabase_token
-from ...services.aws import delete_object
+from ...services.aws import delete_object, get_object_bytes
+from ...services.ai_analysis import run_trade_analysis
 
 import base64
 import json
@@ -177,3 +180,80 @@ def delete_image(
         print("Failed to delete S3 object", s3_key, e)
 
     return
+
+# ----------------------------------------- TRADE ANALYSIS -----------------------------------------
+
+@router.post("/{trade_id}/analyze", response_model=AnalysisResponse)
+async def analyze_trade(
+    body: AnalyzeTradeBody,
+    trade_id: uuid.UUID = Path(...),
+    user_id: str = Depends(verify_supabase_token),
+): 
+    """
+    Generate AI analysis for a trade using a specific screenshot chosen by the user.
+    """
+
+    # 1. Ensure trade belongs to the user
+    check_trade_belongs_to_user(trade_id, user_id)
+
+    #2 Fetch specific image for the trade 
+    try:
+        img_row = get_image_for_trade(
+            user_id=user_id,
+            trade_id=trade_id,
+            image_id=body.imageId,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="image_not_found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden")
+    
+    s3_key = img_row["s3_key"]
+
+    # 3. Download image bytes from S3
+    try: 
+        image_bytes = get_object_bytes(s3_key)
+    except Exception as e:
+        print("Failed to download image from S3", s3_key, e)
+        raise HTTPException(status_code=500, detail="image_download_failed")
+    
+    # 4. Load trade to get note
+    trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
+    if not trade: 
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    
+    note = trade.get("note") or None
+
+    mime_type = "image/png"
+
+    # 5. Run AI analysis on selected image
+    try: 
+        analysis = await run_trade_analysis(
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            user_note=note,
+        )
+    except Exception as e:
+        print("AI analysis failed", e)
+        raise HTTPException(status_code=500, detail="ai_analysis_failed")
+    
+    # 6. Persist analysis
+    try: 
+        row = insert_trade_analysis(
+            user_id=user_id,
+            trade_id=trade_id,
+            what_happened=analysis["what_happened"],
+            why_result=analysis["why_result"],
+            tips=analysis["tips"],
+            model="gpt-4o-mini",
+        )
+    except Exception as e:
+        print("Failed to insert trade analysis", e)
+        raise HTTPException(status_code=500, detail="analysis_persist_failed")
+    
+    # 7) Return structured analysis (what frontend expects)
+    return {
+        "what_happened": row["what_happened"],
+        "why_result": row["why_result"],
+        "tips": row["tips"],
+    }

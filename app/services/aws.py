@@ -44,3 +44,13 @@ def delete_object(key: str) -> None:
         s3.delete_object(Bucket=settings.AWS_S3_BUCKET, Key=key)
     except (BotoCoreError, ClientError) as e:
         print(f"Failed to delete S3 object {key}: {e}")
+
+def get_object_bytes(key: str) -> bytes:
+    """"
+    Download an object from S3 and return its raw bytes.
+    """
+    try: 
+        res = s3.get_object(Bucket=settings.AWS_S3_BUCKET, Key=key)
+        return res["Body"].read()
+    except(BotoCoreError, ClientError) as e:
+        raise RuntimeError(f"download_failed: {e}")

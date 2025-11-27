@@ -97,6 +97,32 @@ def insert_image(
         "created_at": rec.get("created_at"),
     }
 
+def insert_trade_analysis(
+    *,
+    user_id: str,
+    trade_id: uuid.UUID,
+    what_happened: str,
+    why_result: str,
+    tips: List[str],
+    model: str,
+) -> Dict[str, Any]:
+    """
+    Insert an AI analysis row for a trade and return the inserted record.
+    """
+    payload = {
+        "user_id": user_id,
+        "trade_id": str(trade_id),
+        "what_happened": what_happened,
+        "why_result": why_result,
+        "tips": tips,
+        "model": model
+    }
+    res = supabase.table("trade_analysis").insert(payload).execute()
+    data = res.data or []
+    if not data:
+        raise RuntimeError("analysis_insert_failed")
+    
+    return data[0]
 
 def fetch_trades_for_user(
     user_id: str,

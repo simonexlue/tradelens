@@ -24,3 +24,5 @@ pydantic-settings>=2.4.0
 # --- Misc ---
 python-dotenv>=1.0.1
 
+
+openai>=1.60.0
