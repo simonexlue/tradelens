@@ -16,6 +16,8 @@ class Settings(BaseSettings):
         "https://tradelens-frontend-one.vercel.app"
     ]
 
+    openai_api_key: str | None = None
+
     class Config: 
         env_file = ".env"
 

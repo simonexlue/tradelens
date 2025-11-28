@@ -48,12 +48,6 @@ def verify_supabase_token(authorization: str = Header(None)) -> str:
     alg = header.get("alg")
     kid = header.get("kid")
 
-    # Debug info (you can keep this for now)
-    print("DEBUG settings.SUPABASE_URL:", settings.SUPABASE_URL)
-    print("DEBUG token alg:", alg)
-    print("DEBUG token kid:", kid)
-    print("DEBUG claims.iss:", claims.get("iss"))
-
     expected_iss = f"{settings.SUPABASE_URL}/auth/v1"
 
     # ------------------------------------------------------------------

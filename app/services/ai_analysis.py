@@ -1,10 +1,16 @@
 import os
 import json
 from typing import Any, Dict, List, TypedDict
+from ..core.config import settings
 
 from openai import OpenAI
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+api_key = settings.openai_api_key
+if not api_key:
+    raise RuntimeError("OPENAI_API_KEY not configured in settings/.env")
+
+client = OpenAI(api_key=api_key)
 
 class AnalysisResult(TypedDict):
     what_happened: str
