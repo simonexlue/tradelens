@@ -234,8 +234,13 @@ async def analyze_trade(
             user_note=note,
         )
     except Exception as e:
-        print("AI analysis failed", e)
-        raise HTTPException(status_code=500, detail="ai_analysis_failed")
+        # dev logging
+        print("AI analysis failed", repr(e))
+        # surface the actual error for now (dev only)
+        raise HTTPException(
+            status_code=500,
+            detail=f"ai_analysis_failed: {e!r}",
+        )
     
     # 6. Persist analysis
     try: 

@@ -1,5 +1,6 @@
 import os
 import json
+import base64  # 👈 already added earlier
 from typing import Any, Dict, List, TypedDict
 from ..core.config import settings
 
@@ -60,6 +61,10 @@ async def run_trade_analysis(
     Takes raw image bytes + MIME type + note → structured analysis JSON.
     """
 
+    # Encode image as base64 string for the API (bytes are not JSON-serializable)
+    b64_image = base64.b64encode(image_bytes).decode("ascii")
+    data_url = f"data:{mime_type};base64,{b64_image}"
+
     response = client.responses.create(
         model="gpt-4o-mini",
         input=[
@@ -72,10 +77,8 @@ async def run_trade_analysis(
                 "content": [
                     {
                         "type": "input_image",
-                        "image": {
-                            "data": image_bytes,
-                            "mime_type": mime_type,
-                        },
+                        # NOTE: Responses API expects image_url, not image
+                        "image_url": data_url
                     },
                     {
                         "type": "input_text",
@@ -84,32 +87,47 @@ async def run_trade_analysis(
                 ],
             },
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "trade_analysis",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "what_happened": {"type": "string"},
-                        "why_result": {"type": "string"},
-                        "tips": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 2,
-                            "maxItems": 4,
-                        },
-                    },
-                    "required": ["what_happened", "why_result", "tips"],
-                    "additionalProperties": False,
-                },
-                "strict": True,
-            },
-        },
+        # NOTE: no response_format here because openai==2.8.1 Responses.create
+        # does not support that kwarg yet. We instead parse JSON from the text output.
     )
 
     # end goal: turn response into a dict[what_happened, why_result, tips[]].
-    content = response.output[0].content[0].parsed
+    # We tell the model to return ONLY JSON, then parse it here.
+    try:
+        # Prefer convenience attribute if available
+        text = getattr(response, "output_text", None)
+
+        if not text:
+            # Fallback: dig into first output block
+            block = response.output[0]          # type: ignore[index]
+            part = block.content[0]             # type: ignore[index]
+
+            text = getattr(part, "text", None)
+            if text is None and isinstance(part, dict):
+                text = part.get("text")
+
+        if not text:
+            raise RuntimeError("No text field found in OpenAI response")
+
+        raw = text.strip()
+
+        # If the model wrapped JSON in ```json ... ``` code fences, strip them
+        if raw.startswith("```"):
+            # Drop opening ```... line
+            lines = raw.splitlines()
+            if len(lines) >= 2:
+                # remove first line (``` or ```json) and any trailing ``` line
+                if lines[0].lstrip().startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip().startswith("```"):
+                    lines = lines[:-1]
+                raw = "\n".join(lines).strip()
+
+        content = json.loads(raw)
+    except Exception as e:
+        print("Unexpected OpenAI response structure or JSON:", response)
+        raise RuntimeError(f"failed_to_parse_openai_response: {e!r}")
+
     return AnalysisResult(
         what_happened=content["what_happened"],
         why_result=content["why_result"],
