@@ -235,11 +235,25 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         or []
     )
 
+    # Fetch latest analysis for this trade (if any)
+    analysis_rows = (
+        supabase.table("trade_analysis")
+        .select("what_happened", "why_result", "tips", "created_at")
+        .eq("trade_id", str(trade_id))
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    analysis = analysis_rows[0] if analysis_rows else None
+
     return {
         "id": str(trade["id"]),
         "note": trade.get("note"),
         "created_at": trade.get("created_at"),
         "images": imgs,  # [{id,s3_key,width,height,created_at}, ...]
+        "analysis": analysis,
     }
 
 
