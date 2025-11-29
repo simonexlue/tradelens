@@ -1,6 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from ...utils.sessions import infer_session_from_entry
 from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody
 from ...schemas.images import CreateImageBody, CreateImageResponse
 from ...schemas.analysis import AnalysisResponse, AnalyzeTradeBody
@@ -10,11 +11,12 @@ from ...services.db import (
     check_trade_belongs_to_user,
     fetch_trades_for_user,
     fetch_trade_with_images,
-    update_trade_note,
     get_image_for_trade,
     delete_image_record,
     insert_trade_analysis,
-    delete_trade_record
+    delete_trade_record,
+    update_trade_fields,
+    fetch_user_strategies,
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -40,6 +42,13 @@ def _decode_cursor(cursor: str) -> Dict[str, str]:
         return payload
     except Exception as e:
         raise HTTPException(status_code=400, detail="invalid_cursor") from e
+    
+def _ensure_aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        # assume frontend sends UTC if naive
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 
 # ----------------------------------------- GET -----------------------------------------
 @router.get("/")
@@ -76,11 +85,50 @@ def get_trade(
         raise HTTPException(status_code=404, detail="trade_not_found")
     return trade
 
+@router.get("/strategies")
+def list_strategies(
+    user_id: str = Depends(verify_supabase_token),
+):
+    """"
+    Return distinct strategy labels for this user to power the strategy dropdown.
+    """
+    strategies = fetch_user_strategies(user_id=user_id)
+    return {"strategies": strategies}
+
 # ----------------------------------------- POST -----------------------------------------
 @router.post("/", response_model=CreateTradeResponse)
 def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_token)):
-    tid = insert_trade(user_id, body.note or "", body.takenAt)
+    # 1) Determine taken_at
+    if body.takenAt is not None:
+        taken_at = _ensure_aware(body.takenAt)
+    else:
+        # fallback: use "now" as entry time
+        taken_at = datetime.now(timezone.utc)
+
+    # 2) Ensure exit_at is aware if provided
+    exit_at = _ensure_aware(body.exitAt) if body.exitAt is not None else None
+
+    # 3) Infer session from entry time
+    try:
+        session = infer_session_from_entry(taken_at)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 4) Insert trade with all fields
+    tid = insert_trade(
+        user_id=user_id,
+        note=body.note or "",
+        taken_at=taken_at,
+        exit_at=exit_at,
+        outcome=body.outcome,
+        r_multiple=body.rMultiple,
+        strategy=body.strategy,
+        session=session,
+        mistakes=body.mistakes,
+    )
+
     return CreateTradeResponse(tradeId=tid)
+
 
 @router.post("/{trade_id}/images", response_model=CreateImageResponse, status_code=201)
 def create_image(
@@ -131,11 +179,40 @@ def update_trade(
     user_id: str = Depends(verify_supabase_token),
 ):
     check_trade_belongs_to_user(trade_id, user_id)
-    update_trade_note(user_id=user_id, trade_id=trade_id, note=body.note or "")
+
+    taken_at = None
+    session = None
+    exit_at = None
+
+    if body.takenAt is not None:
+        taken_at = _ensure_aware(body.takenAt)
+        try:
+            session = infer_session_from_entry(taken_at)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    if body.exitAt is not None:
+        exit_at = _ensure_aware(body.exitAt)
+
+    # Send only non-None values to DB
+    update_trade_fields(
+        user_id=user_id,
+        trade_id=trade_id,
+        note=body.note,
+        taken_at=taken_at,
+        exit_at=exit_at,
+        outcome=body.outcome,
+        r_multiple=body.rMultiple,
+        strategy=body.strategy,
+        session=session,
+        mistakes=body.mistakes,
+    )
+
     trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="trade_not_found")
     return trade
+
 
 @router.put("/{trade_id}/", include_in_schema=False)
 def update_trade_trailing(
@@ -200,7 +277,7 @@ def delete_trade(
     if not trade:
         raise HTTPException(status_code=404, detail="trade_not_found")
     
-    # Delete all images (DB + S3)
+    # 1) Delete all images (DB + S3)
     for img in trade.get("images", []):
         img_id_str = img.get("id")
         s3_key = img.get("s3_key")
@@ -209,25 +286,24 @@ def delete_trade(
             continue
 
         try:
-            #1 Delete image row
             delete_image_record(image_id=uuid.UUID(img_id_str))
         except Exception as e:
             print("Failed to delete image record", img_id_str, e)
 
         try:
-            #2 Delete from S3
             delete_object(s3_key)
         except Exception as e:
             print("Failed to delete S3 object", s3_key, e)
 
-        # Delete the trade itself 
-        try: 
-            delete_trade_record(user_id=user_id, trade_id=trade_id)
-        except Exception as e:
-            print("Failed to delete trade record", trade_id, e)
-            raise HTTPException(status_code=500, detail="delete_trade_failed")
-        
-        return
+    # 2) Delete the trade itself 
+    try: 
+        delete_trade_record(user_id=user_id, trade_id=trade_id)
+    except Exception as e:
+        print("Failed to delete trade record", trade_id, e)
+        raise HTTPException(status_code=500, detail="delete_trade_failed")
+    
+    return
+
 
 # ----------------------------------------- TRADE ANALYSIS -----------------------------------------
 

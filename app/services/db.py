@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Set
 
 from supabase import create_client, Client
 from ..core.config import settings
@@ -39,17 +39,48 @@ def check_trade_belongs_to_user(trade_id: uuid.UUID, user_id: str) -> None:
         raise PermissionError("trade_not_owned")
 
 
-def insert_trade(user_id: str, note: str, taken_at: Optional[datetime]) -> uuid.UUID:
-    payload = {
+def insert_trade(
+        user_id: str, 
+        note: str, 
+        taken_at: Optional[datetime],
+        exit_at: Optional[datetime],
+        outcome: Optional[str],
+        r_multiple: Optional[float],
+        strategy: Optional[str],
+        session: Optional[str],
+        mistakes: Optional[List[str]],
+        ) -> uuid.UUID:
+    
+    payload: Dict[str, Any] = {
         "user_id": user_id,
         "note": note,
         "taken_at": taken_at.isoformat() if taken_at else None,
     }
+
+    if exit_at is not None:
+        payload["exit_at"] = exit_at.isoformat()
+
+    if outcome is not None:
+        payload["outcome"] = outcome
+
+    if r_multiple is not None:
+        payload["r_multiple"] = r_multiple
+
+    if strategy is not None:
+        payload["strategy"] = strategy
+
+    if session is not None:
+        payload["session"] = session
+
+    if mistakes is not None:
+        payload["mistakes"] = mistakes
+
     res = supabase.table("trades").insert(payload).execute()
-    if not res.data or len(res.data) == 0 or "id" not in res.data[0]:
-        # If table trigger changed returning behavior, fall back to a fetch by (user_id, note, taken_at)
+    data = res.data or []
+    if not data or "id" not in data[0]:
         raise RuntimeError(f"create_failed: {getattr(res, 'error', None)}")
-    return uuid.UUID(res.data[0]["id"])
+
+    return uuid.UUID(data[0]["id"])
 
 
 def insert_image(
@@ -215,7 +246,10 @@ def fetch_trades_for_user(
 def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]:
     trade = (
         supabase.table("trades")
-        .select("id, user_id, note, created_at")
+        .select(
+            "id, user_id, note, created_at, taken_at, exit_at, outcome, "
+            "r_multiple, strategy, session, mistakes"
+        )
         .eq("id", str(trade_id))
         .eq("user_id", user_id)
         .single()
@@ -227,7 +261,7 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
 
     imgs = (
         supabase.table("images")
-        .select("id, s3_key, width, height, created_at")  # 🔹 add id
+        .select("id, s3_key, width, height, created_at")
         .eq("trade_id", str(trade_id))
         .order("created_at", desc=False)
         .execute()
@@ -235,10 +269,9 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         or []
     )
 
-    # Fetch latest analysis for this trade (if any)
     analysis_rows = (
         supabase.table("trade_analysis")
-        .select("what_happened", "why_result", "tips", "created_at")
+        .select("what_happened, why_result, tips, created_at")
         .eq("trade_id", str(trade_id))
         .order("created_at", desc=True)
         .limit(1)
@@ -252,7 +285,14 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "id": str(trade["id"]),
         "note": trade.get("note"),
         "created_at": trade.get("created_at"),
-        "images": imgs,  # [{id,s3_key,width,height,created_at}, ...]
+        "taken_at": trade.get("taken_at"),
+        "exit_at": trade.get("exit_at"),
+        "outcome": trade.get("outcome"),
+        "r_multiple": trade.get("r_multiple"),
+        "strategy": trade.get("strategy"),
+        "session": trade.get("session"),
+        "mistakes": trade.get("mistakes"),
+        "images": imgs,
         "analysis": analysis,
     }
 
@@ -273,6 +313,74 @@ def update_trade_note(
     if not res.data:
         return None
     return res.data[0]
+
+def update_trade_fields(
+    *,
+    user_id: str,
+    trade_id: uuid.UUID,
+    note: Optional[str] = None,
+    taken_at: Optional[datetime] = None,
+    exit_at: Optional[datetime] = None,
+    outcome: Optional[str] = None,
+    r_multiple: Optional[float] = None,
+    strategy: Optional[str] = None,
+    session: Optional[str] = None,
+    mistakes: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update one or more fields on a trade owned by this user.
+    Only non-None parameters are written.
+    Note:
+      - note=None  -> don't touch note
+      - note=""    -> set note to empty string
+      - mistakes=None -> don't touch mistakes
+      - mistakes=[]   -> set to empty array
+    """
+    update_payload: Dict[str, Any] = {}
+
+    if note is not None:
+        update_payload["note"] = note
+
+    if taken_at is not None:
+        update_payload["taken_at"] = taken_at.isoformat()
+
+    if exit_at is not None:
+        update_payload["exit_at"] = exit_at.isoformat()
+
+    if outcome is not None:
+        update_payload["outcome"] = outcome
+
+    if r_multiple is not None:
+        update_payload["r_multiple"] = r_multiple
+
+    if strategy is not None:
+        update_payload["strategy"] = strategy
+
+    if session is not None:
+        update_payload["session"] = session
+
+    if mistakes is not None:
+        update_payload["mistakes"] = mistakes
+
+    # Nothing to update
+    if not update_payload:
+        return None
+
+    res = (
+        supabase.table("trades")
+        .update(update_payload)
+        .eq("id", str(trade_id))
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    data = res.data or []
+    if not data:
+        # No row updated – either not found or not owned by user
+        return None
+
+    return data[0]
+
 
 def get_image_for_trade(
         *, user_id: str, trade_id: uuid.UUID, image_id: uuid.UUID
@@ -327,3 +435,37 @@ def delete_trade_record(*, user_id: str, trade_id: uuid.UUID) -> None:
     if not data:
         # No row matched (either doesn't exist or not owned by this user)
         raise LookupError("trade_not_found")
+
+def fetch_user_strategies(user_id: str) -> List[str]:
+    """
+    Return a deduplicated, case-insensitive-sorted list of strategies
+    the user has used before.
+    """
+    res = (
+        supabase.table("trades")
+        .select("strategy")
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    rows = res.data or []
+
+    seen_lower: Set[str] = set()
+    strategies: List[str] = []
+
+    for r in rows:
+        raw = r.get("strategy")
+        if not raw:
+            continue
+        s = raw.strip()
+        if not s:
+            continue
+        key = s.lower()
+        if key in seen_lower:
+            continue
+        seen_lower.add(key)
+        strategies.append(s)
+
+    # sort alphabetically, case-insensitive
+    strategies.sort(key=lambda x: x.lower())
+    return strategies
