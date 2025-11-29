@@ -295,3 +295,21 @@ def delete_image_record(*, image_id: uuid.UUID) -> None:
         .eq("id", str(image_id))
         .execute()
     )
+
+def delete_trade_record(*, user_id: str, trade_id: uuid.UUID) -> None:
+    """
+    Delete a trade row for a given user.
+    Raises LookupError if the trade does not exist or is not owned by the user.
+    """
+    res = (
+        supabase.table("trades")
+        .delete()
+        .eq("id", str(trade_id))
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    data = res.data or []
+    if not data:
+        # No row matched (either doesn't exist or not owned by this user)
+        raise LookupError("trade_not_found")

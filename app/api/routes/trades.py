@@ -13,7 +13,8 @@ from ...services.db import (
     update_trade_note,
     get_image_for_trade,
     delete_image_record,
-    insert_trade_analysis
+    insert_trade_analysis,
+    delete_trade_record
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -180,6 +181,53 @@ def delete_image(
         print("Failed to delete S3 object", s3_key, e)
 
     return
+
+# ----------------------------------------- DELETE TRADE -----------------------------------------
+@router.delete("/{trade_id}", status_code=204)
+def delete_trade(
+    trade_id: uuid.UUID = Path(...),
+    user_id: str = Depends(verify_supabase_token),
+):
+    """
+    Delete a trade and all associated images (DB + S3).
+    """
+
+    # Ensure trade belongs to this user
+    check_trade_belongs_to_user(trade_id, user_id)
+
+    # Fetch trade + images for deletion
+    trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    
+    # Delete all images (DB + S3)
+    for img in trade.get("images", []):
+        img_id_str = img.get("id")
+        s3_key = img.get("s3_key")
+
+        if not img_id_str or not s3_key:
+            continue
+
+        try:
+            #1 Delete image row
+            delete_image_record(image_id=uuid.UUID(img_id_str))
+        except Exception as e:
+            print("Failed to delete image record", img_id_str, e)
+
+        try:
+            #2 Delete from S3
+            delete_object(s3_key)
+        except Exception as e:
+            print("Failed to delete S3 object", s3_key, e)
+
+        # Delete the trade itself 
+        try: 
+            delete_trade_record(user_id=user_id, trade_id=trade_id)
+        except Exception as e:
+            print("Failed to delete trade record", trade_id, e)
+            raise HTTPException(status_code=500, detail="delete_trade_failed")
+        
+        return
 
 # ----------------------------------------- TRADE ANALYSIS -----------------------------------------
 
