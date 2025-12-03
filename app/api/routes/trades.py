@@ -212,6 +212,11 @@ def update_trade(
         strategy=body.strategy,
         session=session,
         mistakes=body.mistakes,
+        side=body.side,
+        entry_price=body.entryPrice,
+        exit_price=body.exitPrice,
+        contracts=body.contracts,
+        pnl=body.pnl,
     )
 
     trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
@@ -220,13 +225,13 @@ def update_trade(
     return trade
 
 
-@router.put("/{trade_id}/", include_in_schema=False)
-def update_trade_trailing(
-    body: UpdateTradeBody,
-    trade_id: uuid.UUID = Path(...),
-    user_id: str = Depends(verify_supabase_token),
-):
-    return update_trade(body=body, trade_id=trade_id, user_id=user_id)
+# @router.put("/{trade_id}/", include_in_schema=False)
+# def update_trade_trailing(
+#     body: UpdateTradeBody,
+#     trade_id: uuid.UUID = Path(...),
+#     user_id: str = Depends(verify_supabase_token),
+# ):
+#     return update_trade(body=body, trade_id=trade_id, user_id=user_id)
 
 
 # ----------------------------------------- DELETE IMAGE -----------------------------------------
