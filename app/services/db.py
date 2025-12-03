@@ -40,17 +40,22 @@ def check_trade_belongs_to_user(trade_id: uuid.UUID, user_id: str) -> None:
 
 
 def insert_trade(
-        user_id: str, 
-        note: str, 
-        taken_at: Optional[datetime],
-        exit_at: Optional[datetime],
-        outcome: Optional[str],
-        r_multiple: Optional[float],
-        strategy: Optional[str],
-        session: Optional[str],
-        mistakes: Optional[List[str]],
-        ) -> uuid.UUID:
-    
+    user_id: str,
+    note: str,
+    taken_at: Optional[datetime],
+    exit_at: Optional[datetime],
+    outcome: Optional[str],
+    r_multiple: Optional[float],
+    strategy: Optional[str],
+    session: Optional[str],
+    mistakes: Optional[List[str]],
+    side: Optional[str],
+    entry_price: Optional[float],
+    exit_price: Optional[float],
+    contracts: Optional[int],
+    pnl: Optional[float],
+) -> uuid.UUID:
+
     payload: Dict[str, Any] = {
         "user_id": user_id,
         "note": note,
@@ -74,6 +79,21 @@ def insert_trade(
 
     if mistakes is not None:
         payload["mistakes"] = mistakes
+
+    if side is not None:
+        payload["side"] = side
+
+    if entry_price is not None:
+        payload["entry_price"] = entry_price
+
+    if exit_price is not None:
+        payload["exit_price"] = exit_price
+
+    if contracts is not None:
+        payload["contracts"] = contracts
+
+    if pnl is not None:
+        payload["pnl"] = pnl
 
     res = supabase.table("trades").insert(payload).execute()
     data = res.data or []
@@ -248,7 +268,8 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         supabase.table("trades")
         .select(
             "id, user_id, note, created_at, taken_at, exit_at, outcome, "
-            "r_multiple, strategy, session, mistakes"
+            "r_multiple, strategy, session, mistakes, "
+            "side, entry_price, exit_price, contracts, pnl"
         )
         .eq("id", str(trade_id))
         .eq("user_id", user_id)
@@ -292,6 +313,11 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "strategy": trade.get("strategy"),
         "session": trade.get("session"),
         "mistakes": trade.get("mistakes"),
+        "side": trade.get("side"),
+        "entry_price": trade.get("entry_price"),
+        "exit_price": trade.get("exit_price"),
+        "contracts": trade.get("contracts"),
+        "pnl": trade.get("pnl"),
         "images": imgs,
         "analysis": analysis,
     }
@@ -326,6 +352,11 @@ def update_trade_fields(
     strategy: Optional[str] = None,
     session: Optional[str] = None,
     mistakes: Optional[List[str]] = None,
+    side: Optional[str] = None,
+    entry_price: Optional[float] = None,
+    exit_price: Optional[float] = None,
+    contracts: Optional[int] = None,
+    pnl: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Update one or more fields on a trade owned by this user.
@@ -361,6 +392,21 @@ def update_trade_fields(
 
     if mistakes is not None:
         update_payload["mistakes"] = mistakes
+
+    if side is not None:
+        update_payload["side"] = side
+
+    if entry_price is not None:
+        update_payload["entry_price"] = entry_price
+
+    if exit_price is not None:
+        update_payload["exit_price"] = exit_price
+
+    if contracts is not None:
+        update_payload["contracts"] = contracts
+
+    if pnl is not None:
+        update_payload["pnl"] = pnl
 
     # Nothing to update
     if not update_payload:

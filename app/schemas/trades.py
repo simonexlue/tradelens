@@ -23,6 +23,26 @@ class CreateTradeBody(BaseModel):
         default=None,
         description="List of mistakes for this trade (AI suggested + user edited)"
     )
+    side: Optional[str] = Field(
+        default=None,
+        description="buy or sell"
+    )
+    entryPrice: Optional[float] = Field(
+        default=None,
+        description="Entry price of the trade"
+    )
+    exitPrice: Optional[float] = Field(
+        default=None,
+        description="Exit price of the trade"
+    )
+    contracts: Optional[int] = Field(
+        default=None,
+        description="Number of contracts"
+    )
+    pnl: Optional[float] = Field(
+        default=None,
+        description="Profit and loss in currency"
+    )
 
 class CreateTradeResponse(BaseModel):
     tradeId: uuid.UUID
@@ -38,3 +58,8 @@ class UpdateTradeBody(BaseModel):
     rMultiple: Optional[float] = None
     strategy: Optional[str] = None
     mistakes: Optional[List[str]] = None
+    side: Optional[str] = None
+    entryPrice: Optional[float] = None
+    exitPrice: Optional[float] = None
+    contracts: Optional[int] = None
+    pnl: Optional[float] = None

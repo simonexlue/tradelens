@@ -75,15 +75,6 @@ def list_trades_noslash(
 ):
     return list_trades(limit=limit, cursor=cursor, user_id=user_id)
 
-@router.get("/{trade_id}")
-def get_trade(
-    trade_id: uuid.UUID = Path(...),
-    user_id: str = Depends(verify_supabase_token),
-):
-    trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
-    if not trade:
-        raise HTTPException(status_code=404, detail="trade_not_found")
-    return trade
 
 @router.get("/strategies")
 def list_strategies(
@@ -94,6 +85,16 @@ def list_strategies(
     """
     strategies = fetch_user_strategies(user_id=user_id)
     return {"strategies": strategies}
+
+@router.get("/{trade_id}")
+def get_trade(
+    trade_id: uuid.UUID = Path(...),
+    user_id: str = Depends(verify_supabase_token),
+):
+    trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    return trade
 
 # ----------------------------------------- POST -----------------------------------------
 @router.post("/", response_model=CreateTradeResponse)
@@ -125,6 +126,11 @@ def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_t
         strategy=body.strategy,
         session=session,
         mistakes=body.mistakes,
+        side=body.side,
+        entry_price=body.entryPrice,
+        exit_price=body.exitPrice,
+        contracts=body.contracts,
+        pnl=body.pnl,
     )
 
     return CreateTradeResponse(tradeId=tid)

@@ -40,7 +40,7 @@ def infer_session_from_entry(entry_at: datetime) -> str:
     if after_or_equal(13, 0) and before(15, 0):
         return "Break"
 
-    # Asian: 15:00 – 23:59
+    # Asia: 15:00 – 23:59
     if after_or_equal(15, 0):
         return "Asia"
 
