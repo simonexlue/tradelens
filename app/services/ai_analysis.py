@@ -22,23 +22,36 @@ SYSTEM_PROMPT = """
 You are a trading coach analyzing futures/indices trades from chart screenshots.
 
 Your job:
-1) Explain in simple language what happened in the trade.
-2) Explain **why** the trade worked or failed, based on structure, trend, liquidity, and timing.
-3) Give 2–3 actionable tips the trader can apply next time.
+1) Explain in simple language what happened in the trade. IMPORTANT: Make sure to state the position (buy/sell), points won/lost calculated from the entry and exit price or from the notes.
+2) Explain **why** the trade worked or failed, based on structure, trend, liquidity, timing, and the provided trade metadata.
+3) Give 2–3 relatable and actionable tips the trader can apply next time, related to the current trade they just took.
 
 Rules:
-- Be specific to the chart (EMAs, structure, key levels).
-- Do not give financial advice or signal services.
+- Be specific to the chart (EMAs, structure, key levels) AND consistent with the metadata.
+- If metadata fields are null or missing, do not invent values. Just ignore those fields. And remind trader at the end to fill out those values for better insights.
+- If the outcome is a loss or negative PnL, lean into coaching: focus on what can be improved, not shaming.
+- If the outcome is a loss or negative PnL, suggest what they should look for next time before taking the trade.
+- Do not give financial advice or signal services (no “you should buy/sell now”).
+- Always assume take profit and stop loss is set by trader
 - Keep the tone coaching-focused, not judgmental.
 """
 
-def build_user_prompt(user_note: str | None) -> str:
+def build_user_prompt(user_note: str | None, trade_meta: dict | None) -> str:
     note_text = user_note or "No note provided."
+
+    if trade_meta:
+        meta_json = json.dumps(trade_meta, indent=2, default=str)
+        meta_block = f"Trade metadata (JSON):\n{meta_json}"
+    else:
+        meta_block = "Trade metadata: None (no extra fields supplied)"
     return f"""
+
+{meta_block}
+
 User's trade note:
 {note_text}
 
-Using the chart image + this note, analyze the trade.
+Using the chart image + this note + the metadata, analyze the trade.
 Return ONLY JSON in this shape:
 
 {{
@@ -56,6 +69,7 @@ async def run_trade_analysis(
     image_bytes: bytes,
     mime_type: str,
     user_note: str | None,
+    trade_meta: dict | None,
 ) -> AnalysisResult:
     """
     Takes raw image bytes + MIME type + note → structured analysis JSON.
@@ -77,17 +91,17 @@ async def run_trade_analysis(
                 "content": [
                     {
                         "type": "input_image",
-                        # NOTE: Responses API expects image_url, not image
+                        # Responses API expects image_url, not image
                         "image_url": data_url
                     },
                     {
                         "type": "input_text",
-                        "text": build_user_prompt(user_note),
+                        "text": build_user_prompt(user_note, trade_meta),
                     },
                 ],
             },
         ],
-        # NOTE: no response_format here because openai==2.8.1 Responses.create
+        # no response_format here because openai==2.8.1 Responses.create
         # does not support that kwarg yet. We instead parse JSON from the text output.
     )
 

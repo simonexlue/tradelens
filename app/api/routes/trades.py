@@ -344,12 +344,28 @@ async def analyze_trade(
         print("Failed to download image from S3", s3_key, e)
         raise HTTPException(status_code=500, detail="image_download_failed")
     
-    # 4. Load trade to get note
+    # 4. Load trade to get note + metadata
     trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
     if not trade: 
         raise HTTPException(status_code=404, detail="trade_not_found")
     
     note = trade.get("note") or None
+
+    # Prepare structured metadata for the model
+    trade_meta = {
+        "taken_at": trade.get("taken_at"),
+        "exit_at": trade.get("exit_at"),
+        "session": trade.get("session"),
+        "side": trade.get("side"),
+        "outcome": trade.get("outcome"),
+        "r_multiple": trade.get("r_multiple"),
+        "strategy": trade.get("strategy"),
+        "entry_price": trade.get("entry_price"),
+        "exit_price": trade.get("exit_price"),
+        "contracts": trade.get("contracts"),
+        "pnl": trade.get("pnl"),
+        "mistakes": trade.get("mistakes") or [],
+    }
 
     mime_type = "image/png"
 
@@ -359,6 +375,7 @@ async def analyze_trade(
             image_bytes=image_bytes,
             mime_type=mime_type,
             user_note=note,
+            trade_meta=trade_meta,
         )
     except Exception as e:
         # dev logging
