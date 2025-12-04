@@ -200,7 +200,7 @@ def fetch_trades_for_user(
     # 1) Base query for trades owned by user (ordered newest entry first)
     q = (
         supabase.table("trades")
-        .select("id, note, created_at, taken_at, sort_at")
+        .select("id, note, created_at, taken_at, sort_at, outcome, session, strategy")
         .eq("user_id", user_id)
         .order("sort_at", desc=True)
         .order("id", desc=True)
@@ -257,6 +257,9 @@ def fetch_trades_for_user(
                 "created_at": r.get("created_at"),
                 "taken_at": r.get("taken_at"),
                 "sort_at": r.get("sort_at"), 
+                "outcome": r.get("outcome"),
+                "strategy": r.get("strategy"),
+                "session": r.get("session"),
                 "images": [first_map[tid]] if tid in first_map else [],
                 "image_count": int(count_map.get(tid, 0)),
             }
