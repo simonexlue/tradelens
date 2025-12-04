@@ -178,7 +178,7 @@ def insert_trade_analysis(
 def fetch_trades_for_user(
     user_id: str,
     limit: int,
-    after: Optional[Dict[str, str]] = None,  # {"created_at": ISO, "id": uuid-string}
+    after: Optional[Dict[str, str]] = None,  # {"sort_at": ISO, "id": uuid-string}
 ) -> List[Dict]:
     """
     Returns rows shaped for the frontend list:
@@ -186,32 +186,32 @@ def fetch_trades_for_user(
       {
         "id": "...",
         "note": "...",
-        "created_at": "2025-10-31T19:23:11.123Z",
-        "images": [{"s3_key": "...", "width": 1200, "height": 800}],  # zero or one (thumbnail)
+        "created_at": "...",
+        "taken_at": "...",
+        "sort_at": "...",   # used for pagination, frontend can ignore
+        "images": [...],
         "image_count": 3
       },
       ...
     ]
-    Pagination: keyset on (created_at desc, id desc)
+    Pagination: keyset on (sort_at desc, id desc)
     """
 
-    # 1) Base query for trades owned by user (ordered newest first)
+    # 1) Base query for trades owned by user (ordered newest entry first)
     q = (
         supabase.table("trades")
-        .select("id, note, created_at")
+        .select("id, note, created_at, taken_at, sort_at")
         .eq("user_id", user_id)
-        .order("created_at", desc=True)
+        .order("sort_at", desc=True)
         .order("id", desc=True)
     )
 
-    # 2) Keyset pagination: created_at < cursor.created_at OR (created_at = cursor.created_at AND id < cursor.id)
+    # 2) Keyset pagination: sort_at < cursor.sort_at OR (sort_at = cursor.sort_at AND id < cursor.id)
     if after:
-        created = after["created_at"]
+        sort_at = after["sort_at"]
         tid = after["id"]
-        # PostgREST supports boolean OR via .or_("cond1,cond2")
-        # Combine the two AND branches as separate groups
         q = q.or_(
-            f"and(created_at.lt.{created}),and(created_at.eq.{created},id.lt.{tid})"
+            f"and(sort_at.lt.{sort_at}),and(sort_at.eq.{sort_at},id.lt.{tid})"
         )
 
     q = q.limit(limit)
@@ -255,13 +255,14 @@ def fetch_trades_for_user(
                 "id": tid,
                 "note": r.get("note"),
                 "created_at": r.get("created_at"),
+                "taken_at": r.get("taken_at"),
+                "sort_at": r.get("sort_at"), 
                 "images": [first_map[tid]] if tid in first_map else [],
                 "image_count": int(count_map.get(tid, 0)),
             }
         )
 
     return shaped
-
 
 def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]:
     trade = (

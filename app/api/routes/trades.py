@@ -29,15 +29,15 @@ from typing import Dict, Optional
 router = APIRouter(prefix="/trades", tags=["trades"])
 
 # ----------------------------------------- HELPERS -----------------------------------------
-def _encode_cursor(created_at_iso: str, trade_id: str) -> str:
-    payload = {"created_at": created_at_iso, "id": trade_id}
+def _encode_cursor(sort_at_iso: str, trade_id: str) -> str:
+    payload = {"sort_at": sort_at_iso, "id": trade_id}
     return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
 def _decode_cursor(cursor: str) -> Dict[str, str]:
     try:
         raw = base64.urlsafe_b64decode(cursor.encode()).decode()
         payload = json.loads(raw)
-        if not payload.get("created_at") or not payload.get("id"):
+        if not payload.get("sort_at") or not payload.get("id"):
             raise ValueError("cursor missing fields")
         return payload
     except Exception as e:
@@ -63,7 +63,9 @@ def list_trades(
     next_cursor = None
     if len(items) == limit:
         tail = items[-1]
-        next_cursor = _encode_cursor(tail["created_at"], str(tail["id"]))
+        sort_at = tail.get("sort_at")
+        if sort_at:
+            next_cursor = _encode_cursor(sort_at, str(tail["id"]))
 
     return {"items": items, "nextCursor": next_cursor}
 
@@ -223,16 +225,6 @@ def update_trade(
     if not trade:
         raise HTTPException(status_code=404, detail="trade_not_found")
     return trade
-
-
-# @router.put("/{trade_id}/", include_in_schema=False)
-# def update_trade_trailing(
-#     body: UpdateTradeBody,
-#     trade_id: uuid.UUID = Path(...),
-#     user_id: str = Depends(verify_supabase_token),
-# ):
-#     return update_trade(body=body, trade_id=trade_id, user_id=user_id)
-
 
 # ----------------------------------------- DELETE IMAGE -----------------------------------------
 @router.delete("/{trade_id}/images/{image_id}", status_code=204)
