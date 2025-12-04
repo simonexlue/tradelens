@@ -45,7 +45,7 @@ def insert_trade(
     taken_at: Optional[datetime],
     exit_at: Optional[datetime],
     outcome: Optional[str],
-    strategy: Optional[str],
+    strategies: Optional[List[str]],
     session: Optional[str],
     mistakes: Optional[List[str]],
     side: Optional[str],
@@ -68,8 +68,8 @@ def insert_trade(
     if outcome is not None:
         payload["outcome"] = outcome
 
-    if strategy is not None:
-        payload["strategy"] = strategy
+    if strategies is not None:
+        payload["strategies"] = strategies
 
     if session is not None:
         payload["session"] = session
@@ -200,7 +200,7 @@ def fetch_trades_for_user(
     # 1) Base query for trades owned by user (ordered newest entry first)
     q = (
         supabase.table("trades")
-        .select("id, note, created_at, taken_at, sort_at, outcome, session, strategy, symbol")
+        .select("id, note, created_at, taken_at, sort_at, outcome, session, strategies, symbol")
         .eq("user_id", user_id)
         .order("sort_at", desc=True)
         .order("id", desc=True)
@@ -258,7 +258,7 @@ def fetch_trades_for_user(
                 "taken_at": r.get("taken_at"),
                 "sort_at": r.get("sort_at"),
                 "outcome": r.get("outcome"),
-                "strategy": r.get("strategy"),
+                "strategies": r.get("strategies"),
                 "session": r.get("session"),
                 "symbol": r.get("symbol"), 
                 "images": [first_map[tid]] if tid in first_map else [],
@@ -273,7 +273,7 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         supabase.table("trades")
         .select(
             "id, user_id, note, created_at, taken_at, exit_at, outcome, "
-            "strategy, session, mistakes, "
+            "strategies, session, mistakes, "
             "side, entry_price, exit_price, contracts, pnl, symbol"
         )
         .eq("id", str(trade_id))
@@ -314,7 +314,7 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "taken_at": trade.get("taken_at"),
         "exit_at": trade.get("exit_at"),
         "outcome": trade.get("outcome"),
-        "strategy": trade.get("strategy"),
+        "strategies": trade.get("strategies"),
         "session": trade.get("session"),
         "mistakes": trade.get("mistakes"),
         "side": trade.get("side"),
@@ -353,7 +353,7 @@ def update_trade_fields(
     taken_at: Optional[datetime] = None,
     exit_at: Optional[datetime] = None,
     outcome: Optional[str] = None,
-    strategy: Optional[str] = None,
+    strategies: Optional[List[str]] = None,
     session: Optional[str] = None,
     mistakes: Optional[List[str]] = None,
     side: Optional[str] = None,
@@ -386,8 +386,8 @@ def update_trade_fields(
     if outcome is not None:
         update_payload["outcome"] = outcome
 
-    if strategy is not None:
-        update_payload["strategy"] = strategy
+    if strategies is not None:
+        update_payload["strategies"] = strategies
 
     if session is not None:
         update_payload["session"] = session
@@ -489,12 +489,12 @@ def delete_trade_record(*, user_id: str, trade_id: uuid.UUID) -> None:
 
 def fetch_user_strategies(user_id: str) -> List[str]:
     """
-    Return a deduplicated, case-insensitive-sorted list of strategies
-    the user has used before.
+    Return a deduplicated, case-insensitive-sorted list of strategy tags
+    the user has used before (flattened from strategies[]).
     """
     res = (
         supabase.table("trades")
-        .select("strategy")
+        .select("strategies")
         .eq("user_id", user_id)
         .execute()
     )
@@ -505,18 +505,20 @@ def fetch_user_strategies(user_id: str) -> List[str]:
     strategies: List[str] = []
 
     for r in rows:
-        raw = r.get("strategy")
-        if not raw:
+        raw_list = r.get("strategies") or []
+        if not isinstance(raw_list, list):
             continue
-        s = raw.strip()
-        if not s:
-            continue
-        key = s.lower()
-        if key in seen_lower:
-            continue
-        seen_lower.add(key)
-        strategies.append(s)
+        for raw in raw_list:
+            if not raw:
+                continue
+            s = str(raw).strip()
+            if not s:
+                continue
+            key = s.lower()
+            if key in seen_lower:
+                continue
+            seen_lower.add(key)
+            strategies.append(s)
 
-    # sort alphabetically, case-insensitive
     strategies.sort(key=lambda x: x.lower())
     return strategies
