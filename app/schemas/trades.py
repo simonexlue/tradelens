@@ -11,10 +11,6 @@ class CreateTradeBody(BaseModel):
         default = None, 
         description="Outcome of the trade: win, loss, breakeven, early_exit",   
     )
-    rMultiple: Optional[float] = Field(
-        default=None,
-        description="R multiple for the trade (risk-reward in R)",
-    )
     strategy: Optional[str] = Field(
         default=None,
         description="User-defined strategy label"
@@ -43,6 +39,7 @@ class CreateTradeBody(BaseModel):
         default=None,
         description="Profit and loss in currency"
     )
+    symbol: Optional[str] = None
 
 class CreateTradeResponse(BaseModel):
     tradeId: uuid.UUID
@@ -55,7 +52,6 @@ class UpdateTradeBody(BaseModel):
     takenAt: Optional[datetime] = None
     exitAt: Optional[datetime] = None
     outcome: Optional[str] = None
-    rMultiple: Optional[float] = None
     strategy: Optional[str] = None
     mistakes: Optional[List[str]] = None
     side: Optional[str] = None
@@ -63,3 +59,4 @@ class UpdateTradeBody(BaseModel):
     exitPrice: Optional[float] = None
     contracts: Optional[int] = None
     pnl: Optional[float] = None
+    symbol: Optional[str] = None

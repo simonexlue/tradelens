@@ -45,7 +45,6 @@ def insert_trade(
     taken_at: Optional[datetime],
     exit_at: Optional[datetime],
     outcome: Optional[str],
-    r_multiple: Optional[float],
     strategy: Optional[str],
     session: Optional[str],
     mistakes: Optional[List[str]],
@@ -54,6 +53,7 @@ def insert_trade(
     exit_price: Optional[float],
     contracts: Optional[int],
     pnl: Optional[float],
+    symbol: Optional[str],
 ) -> uuid.UUID:
 
     payload: Dict[str, Any] = {
@@ -67,9 +67,6 @@ def insert_trade(
 
     if outcome is not None:
         payload["outcome"] = outcome
-
-    if r_multiple is not None:
-        payload["r_multiple"] = r_multiple
 
     if strategy is not None:
         payload["strategy"] = strategy
@@ -94,6 +91,9 @@ def insert_trade(
 
     if pnl is not None:
         payload["pnl"] = pnl
+
+    if symbol is not None:
+        payload["symbol"] = symbol
 
     res = supabase.table("trades").insert(payload).execute()
     data = res.data or []
@@ -200,7 +200,7 @@ def fetch_trades_for_user(
     # 1) Base query for trades owned by user (ordered newest entry first)
     q = (
         supabase.table("trades")
-        .select("id, note, created_at, taken_at, sort_at, outcome, session, strategy")
+        .select("id, note, created_at, taken_at, sort_at, outcome, session, strategy, symbol")
         .eq("user_id", user_id)
         .order("sort_at", desc=True)
         .order("id", desc=True)
@@ -256,10 +256,11 @@ def fetch_trades_for_user(
                 "note": r.get("note"),
                 "created_at": r.get("created_at"),
                 "taken_at": r.get("taken_at"),
-                "sort_at": r.get("sort_at"), 
+                "sort_at": r.get("sort_at"),
                 "outcome": r.get("outcome"),
                 "strategy": r.get("strategy"),
                 "session": r.get("session"),
+                "symbol": r.get("symbol"), 
                 "images": [first_map[tid]] if tid in first_map else [],
                 "image_count": int(count_map.get(tid, 0)),
             }
@@ -272,8 +273,8 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         supabase.table("trades")
         .select(
             "id, user_id, note, created_at, taken_at, exit_at, outcome, "
-            "r_multiple, strategy, session, mistakes, "
-            "side, entry_price, exit_price, contracts, pnl"
+            "strategy, session, mistakes, "
+            "side, entry_price, exit_price, contracts, pnl, symbol"
         )
         .eq("id", str(trade_id))
         .eq("user_id", user_id)
@@ -313,7 +314,6 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "taken_at": trade.get("taken_at"),
         "exit_at": trade.get("exit_at"),
         "outcome": trade.get("outcome"),
-        "r_multiple": trade.get("r_multiple"),
         "strategy": trade.get("strategy"),
         "session": trade.get("session"),
         "mistakes": trade.get("mistakes"),
@@ -322,6 +322,7 @@ def fetch_trade_with_images(user_id: str, trade_id: uuid.UUID) -> Optional[Dict]
         "exit_price": trade.get("exit_price"),
         "contracts": trade.get("contracts"),
         "pnl": trade.get("pnl"),
+        "symbol": trade.get("symbol"), 
         "images": imgs,
         "analysis": analysis,
     }
@@ -352,7 +353,6 @@ def update_trade_fields(
     taken_at: Optional[datetime] = None,
     exit_at: Optional[datetime] = None,
     outcome: Optional[str] = None,
-    r_multiple: Optional[float] = None,
     strategy: Optional[str] = None,
     session: Optional[str] = None,
     mistakes: Optional[List[str]] = None,
@@ -361,6 +361,7 @@ def update_trade_fields(
     exit_price: Optional[float] = None,
     contracts: Optional[int] = None,
     pnl: Optional[float] = None,
+    symbol: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Update one or more fields on a trade owned by this user.
@@ -385,9 +386,6 @@ def update_trade_fields(
     if outcome is not None:
         update_payload["outcome"] = outcome
 
-    if r_multiple is not None:
-        update_payload["r_multiple"] = r_multiple
-
     if strategy is not None:
         update_payload["strategy"] = strategy
 
@@ -411,6 +409,9 @@ def update_trade_fields(
 
     if pnl is not None:
         update_payload["pnl"] = pnl
+
+    if symbol is not None:
+        update_payload["symbol"] = symbol
 
     # Nothing to update
     if not update_payload:

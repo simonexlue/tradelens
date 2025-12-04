@@ -124,7 +124,6 @@ def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_t
         taken_at=taken_at,
         exit_at=exit_at,
         outcome=body.outcome,
-        r_multiple=body.rMultiple,
         strategy=body.strategy,
         session=session,
         mistakes=body.mistakes,
@@ -133,6 +132,7 @@ def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_t
         exit_price=body.exitPrice,
         contracts=body.contracts,
         pnl=body.pnl,
+        symbol=body.symbol,
     )
 
     return CreateTradeResponse(tradeId=tid)
@@ -210,7 +210,6 @@ def update_trade(
         taken_at=taken_at,
         exit_at=exit_at,
         outcome=body.outcome,
-        r_multiple=body.rMultiple,
         strategy=body.strategy,
         session=session,
         mistakes=body.mistakes,
@@ -219,6 +218,7 @@ def update_trade(
         exit_price=body.exitPrice,
         contracts=body.contracts,
         pnl=body.pnl,
+        symbol=body.symbol,
     )
 
     trade = fetch_trade_with_images(user_id=user_id, trade_id=trade_id)
@@ -358,12 +358,12 @@ async def analyze_trade(
         "session": trade.get("session"),
         "side": trade.get("side"),
         "outcome": trade.get("outcome"),
-        "r_multiple": trade.get("r_multiple"),
         "strategy": trade.get("strategy"),
         "entry_price": trade.get("entry_price"),
         "exit_price": trade.get("exit_price"),
         "contracts": trade.get("contracts"),
         "pnl": trade.get("pnl"),
+        "symbol": trade.get("symbol"),
         "mistakes": trade.get("mistakes") or [],
     }
 
