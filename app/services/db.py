@@ -179,7 +179,9 @@ def fetch_trades_for_user(
     user_id: str,
     limit: int,
     after: Optional[Dict[str, str]] = None,  # {"sort_at": ISO, "id": uuid-string}
+    filters: Optional[Dict[str, List[str]]] = None,
 ) -> List[Dict]:
+
     """
     Returns rows shaped for the frontend list:
     [
@@ -200,11 +202,35 @@ def fetch_trades_for_user(
     # 1) Base query for trades owned by user (ordered newest entry first)
     q = (
         supabase.table("trades")
-        .select("id, note, created_at, taken_at, sort_at, outcome, session, strategies, symbol")
+        .select(
+            "id, note, created_at, taken_at, sort_at, "
+            "outcome, session, strategies, symbol"
+        )
         .eq("user_id", user_id)
         .order("sort_at", desc=True)
         .order("id", desc=True)
     )
+
+    # 1b) Apply filters (outcome, session, strategy, symbol)
+    if filters:
+        outcomes = filters.get("outcome") or []
+        sessions = filters.get("session") or []
+        strategies = filters.get("strategy") or []
+        symbols = filters.get("symbol") or []
+
+        if outcomes:
+            q = q.in_("outcome", outcomes)
+            
+        if sessions:
+            q = q.in_("session", sessions)
+
+        if symbols:
+            upper_symbols = [s.upper() for s in symbols]
+            q = q.in_("symbol", upper_symbols)
+
+        # strategies contains ALL selected strategies
+        if strategies:
+            q = q.contains("strategies", strategies)
 
     # 2) Keyset pagination: sort_at < cursor.sort_at OR (sort_at = cursor.sort_at AND id < cursor.id)
     if after:
@@ -522,3 +548,67 @@ def fetch_user_strategies(user_id: str) -> List[str]:
 
     strategies.sort(key=lambda x: x.lower())
     return strategies
+
+def fetch_trade_filters(user_id: str) -> Dict[str, Any]:
+    """
+    Return distinct filter options for this user's trades:
+      - outcomes
+      - sessions
+      - strategies
+      - symbols
+    All deduped and sorted.
+    """
+    res = (
+        supabase.table("trades")
+        .select("outcome, session, strategies, symbol")
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    rows = res.data or []
+
+    outcome_set: Set[str] = set()
+    session_set: Set[str] = set()
+    strategy_set: Set[str] = set()
+    symbol_set: Set[str] = set()
+
+    for r in rows:
+        # Outcomes
+        out = r.get("outcome")
+        if out:
+            outcome_set.add(str(out))
+
+        # Sessions
+        sess = r.get("session")
+        if sess:
+            session_set.add(str(sess))
+
+        # Strategies (array)
+        raw_strats = r.get("strategies") or []
+        if isinstance(raw_strats, list):
+            for raw in raw_strats:
+                if not raw:
+                    continue
+                s = str(raw).strip()
+                if not s:
+                    continue
+                strategy_set.add(s)
+
+        # Symbols
+        sym = r.get("symbol")
+        if sym:
+            s = str(sym).strip().upper()
+            if s:
+                symbol_set.add(s)
+
+    outcomes = sorted(outcome_set)
+    sessions = sorted(session_set)
+    strategies = sorted(strategy_set, key=lambda x: x.lower())
+    symbols = sorted(symbol_set)
+
+    return {
+        "outcomes": outcomes,
+        "sessions": sessions,
+        "strategies": strategies,
+        "symbols": symbols,
+    }

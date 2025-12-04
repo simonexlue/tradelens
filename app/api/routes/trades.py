@@ -17,6 +17,7 @@ from ...services.db import (
     delete_trade_record,
     update_trade_fields,
     fetch_user_strategies,
+    fetch_trade_filters,
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -24,7 +25,7 @@ from ...services.ai_analysis import run_trade_analysis
 
 import base64
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
@@ -55,10 +56,21 @@ def _ensure_aware(dt: datetime) -> datetime:
 def list_trades(
     limit: int = Query(12, ge=1, le=50),
     cursor: Optional[str] = Query(None),
+    outcome: List[str] = Query(default=[]),
+    session: List[str] = Query(default=[]),
+    strategy: List[str] = Query(default=[]),
+    symbol: List[str] = Query(default=[]),
     user_id: str = Depends(verify_supabase_token),
 ):
     after = _decode_cursor(cursor) if cursor else None
-    items = fetch_trades_for_user(user_id=user_id, limit=limit, after=after)
+
+    filters = {
+        "outcome": outcome or [],
+        "session": session or [],
+        "strategy" : strategy or [],
+        "symbol" : symbol or [],
+    }
+    items = fetch_trades_for_user(user_id=user_id, limit=limit, after=after, filters=filters)
 
     next_cursor = None
     if len(items) == limit:
@@ -73,9 +85,21 @@ def list_trades(
 def list_trades_noslash(
     limit: int = Query(12, ge=1, le=50),
     cursor: Optional[str] = Query(None),
+    outcome: List[str] = Query(default=[]),
+    session: List[str] = Query(default=[]),
+    strategy: List[str] = Query(default=[]),
+    symbol: List[str] = Query(default=[]),
     user_id: str = Depends(verify_supabase_token),
 ):
-    return list_trades(limit=limit, cursor=cursor, user_id=user_id)
+    return list_trades(
+        limit=limit,
+        cursor=cursor,
+        outcome=outcome,
+        session=session,
+        strategy=strategy,
+        symbol=symbol,
+        user_id=user_id,
+    )
 
 
 @router.get("/strategies")
@@ -87,6 +111,16 @@ def list_strategies(
     """
     strategies = fetch_user_strategies(user_id=user_id)
     return {"strategies": strategies}
+
+@router.get("/filters")
+def list_trade_filters(
+    user_id: str = Depends(verify_supabase_token)
+):
+    """"
+    Return distinct filter options for this user's trades
+    """
+    filters = fetch_trade_filters(user_id=user_id)
+    return filters 
 
 @router.get("/{trade_id}")
 def get_trade(
