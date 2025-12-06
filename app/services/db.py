@@ -612,3 +612,85 @@ def fetch_trade_filters(user_id: str) -> Dict[str, Any]:
         "strategies": strategies,
         "symbols": symbols,
     }
+
+def fetch_trade_calendar(
+    user_id: str,
+    year: int,
+    month: int,
+    filters: Optional[Dict[str, List[str]]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Aggregate trades by day for the given year/month.
+
+    Returns a list of dicts shaped like:
+      {
+        "date": "YYYY-MM-DD",
+        "pnl": 123.45,
+        "trade_count": 4,
+      }
+    """
+
+    # Start/end of month (UTC)
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+    # Base query
+    q = (
+        supabase.table("trades")
+        .select("taken_at, pnl, outcome, session, strategies, symbol")
+        .eq("user_id", user_id)
+        .gte("taken_at", start.isoformat())
+        .lt("taken_at", end.isoformat())
+    )
+
+    # Filters
+    if filters:
+        outcomes = filters.get("outcome") or []
+        sessions = filters.get("session") or []
+        strategies = filters.get("strategy") or []
+        symbols = filters.get("symbol") or []
+
+        if outcomes:
+            q = q.in_("outcome", outcomes)
+
+        if sessions:
+            q = q.in_("session", sessions)
+
+        if symbols:
+            upper_symbols = [s.upper() for s in symbols]
+            q = q.in_("symbol", upper_symbols)
+
+        if strategies:
+            q = q.contains("strategies", strategies)
+
+    res = q.execute()
+    rows = res.data or []
+
+    # Aggregate by YYYY-MM-DD
+    buckets: Dict[str, Dict[str, Any]] = {}
+
+    for r in rows:
+        taken_at = r.get("taken_at")
+        if not taken_at:
+            continue
+
+        # Supabase timestamps are ISO strings – first 10 chars are YYYY-MM-DD
+        day_str = str(taken_at)[:10]
+
+        try:
+            pnl_value = float(r.get("pnl") or 0.0)
+        except (TypeError, ValueError):
+            pnl_value = 0.0
+
+        bucket = buckets.setdefault(
+            day_str,
+            {"date": day_str, "pnl": 0.0, "trade_count": 0},
+        )
+        bucket["pnl"] += pnl_value
+        bucket["trade_count"] += 1
+
+    # Sort by date
+    return sorted(buckets.values(), key=lambda d: d["date"])

@@ -5,6 +5,7 @@ from ...utils.sessions import infer_session_from_entry
 from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody
 from ...schemas.images import CreateImageBody, CreateImageResponse
 from ...schemas.analysis import AnalysisResponse, AnalyzeTradeBody
+from ...schemas.calendar import CalendarResponse
 from ...services.db import (
     insert_trade,
     insert_image,
@@ -18,6 +19,7 @@ from ...services.db import (
     update_trade_fields,
     fetch_user_strategies,
     fetch_trade_filters,
+    fetch_trade_calendar,
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -121,6 +123,36 @@ def list_trade_filters(
     """
     filters = fetch_trade_filters(user_id=user_id)
     return filters 
+
+@router.get("/calendar", response_model=CalendarResponse)
+def get_trade_calendar(
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    outcome: List[str] = Query(default=[]),
+    session: List[str] = Query(default=[]),
+    strategy: List[str] = Query(default=[]),
+    symbol: List[str] = Query(default=[]),
+    user_id: str = Depends(verify_supabase_token),
+):
+    """
+    Per-day P&L and trade count for a given month.
+    Same filter semantics as list_trades.
+    """
+    filters = {
+        "outcome": outcome or [],
+        "session": session or [],
+        "strategy": strategy or [],
+        "symbol": symbol or [],
+    }
+
+    days = fetch_trade_calendar(
+        user_id=user_id,
+        year=year,
+        month=month,
+        filters=filters,
+    )
+
+    return CalendarResponse(days=days)
 
 @router.get("/{trade_id}")
 def get_trade(
