@@ -204,7 +204,7 @@ def fetch_trades_for_user(
         supabase.table("trades")
         .select(
             "id, note, created_at, taken_at, sort_at, "
-            "outcome, session, strategies, symbol"
+            "outcome, session, strategies, symbol, pnl"
         )
         .eq("user_id", user_id)
         .order("sort_at", desc=True)
@@ -287,6 +287,7 @@ def fetch_trades_for_user(
                 "strategies": r.get("strategies"),
                 "session": r.get("session"),
                 "symbol": r.get("symbol"), 
+                "pnl": r.get("pnl"),
                 "images": [first_map[tid]] if tid in first_map else [],
                 "image_count": int(count_map.get(tid, 0)),
             }
