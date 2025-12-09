@@ -4,7 +4,7 @@ from datetime import datetime
 import uuid
 
 class CreateTradeBody(BaseModel):
-    note: Optional[str] = Field(default="", min_length=0, max_length=1000)
+    note: Optional[str] = Field(default="", min_length=0, max_length=3000)
     takenAt: Optional[datetime] = None
     exitAt: Optional[datetime] = None 
     outcome: Optional[str] = Field(
