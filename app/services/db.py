@@ -102,6 +102,53 @@ def insert_trade(
 
     return uuid.UUID(data[0]["id"])
 
+def trade_exists_for_user(
+    *,
+    user_id: str,
+    symbol: str,
+    side: str,
+    pnl: float,
+    taken_at: datetime,
+    exit_at: Optional[datetime],
+    entry_price: Optional[float],
+    exit_price: Optional[float],
+    contracts: Optional[int],
+) -> bool:
+    """
+    Return True if a trade already exists for this user with the same
+    (symbol, side, pnl, taken_at, exit_at, entry_price, exit_price, contracts).
+    Used to dedupe CSV imports against past imports/manual entries.
+
+    Only filter on fields that are not None. If a field is None
+    here but set in the DB (or vice versa), it will NOT be considered
+    a strict duplicate.
+    """
+    q = (
+        supabase.table("trades")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("symbol", symbol)
+        .eq("side", side)
+        .eq("pnl", pnl)
+        .eq("taken_at", taken_at.isoformat())
+    )
+
+    if exit_at is not None:
+        q = q.eq("exit_at", exit_at.isoformat())
+
+    if entry_price is not None:
+        q = q.eq("entry_price", entry_price)
+
+    if exit_price is not None:
+        q = q.eq("exit_price", exit_price)
+
+    if contracts is not None:
+        q = q.eq("contracts", contracts)
+
+    res = q.limit(1).execute()
+    data = res.data or []
+    return len(data) > 0
+
 
 def insert_image(
     user_id: str,

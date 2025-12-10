@@ -20,6 +20,7 @@ from ...services.db import (
     fetch_user_strategies,
     fetch_trade_filters,
     fetch_trade_calendar,
+    trade_exists_for_user,
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -242,8 +243,30 @@ async def import_trades_csv(
     inserted = 0
     failed = 0
 
+    # Avoid duplicates within this CSV (optional but fine to keep)
+    seen_keys = set()
+
     for row in payload.rows:
         try:
+            # Build dedupe key for within the file
+            dedupe_key = (
+                (row.symbol or "").strip().upper(),
+                row.side,
+                round(row.pnl, 2),
+                row.entry_time or "",
+                row.exit_time or "",
+                row.entry_price if row.entry_price is not None else None,
+                row.exit_price if row.exit_price is not None else None,
+                row.contracts if row.contracts is not None else None,
+            )
+
+            if dedupe_key in seen_keys:
+                print("CSV import: duplicate row in file skipped:", dedupe_key)
+                failed += 1
+                continue
+
+            seen_keys.add(dedupe_key)
+
             # 1) derive outcome from pnl
             if row.pnl > 0:
                 outcome = "win"
@@ -257,6 +280,34 @@ async def import_trades_csv(
                 timezone.utc
             )
             exit_at = _parse_csv_timestamp(row.exit_time)
+
+            # 2b) DB-level dedupe against past imports / manual trades
+            symbol_norm = (row.symbol or "").strip()
+
+            if trade_exists_for_user(
+                user_id=user_id,
+                symbol=symbol_norm,
+                side=row.side,
+                pnl=row.pnl,
+                taken_at=taken_at,
+                exit_at=exit_at,
+                entry_price=row.entry_price,
+                exit_price=row.exit_price,
+                contracts=row.contracts,
+            ):
+                print(
+                    "CSV import: DB duplicate skipped:",
+                    symbol_norm,
+                    row.side,
+                    row.pnl,
+                    taken_at.isoformat(),
+                    exit_at.isoformat() if exit_at else None,
+                    row.entry_price,
+                    row.exit_price,
+                    row.contracts,
+                )
+                failed += 1
+                continue
 
             # 3) try to infer session, but do NOT fail the row if it errors
             session = None
@@ -281,7 +332,7 @@ async def import_trades_csv(
                 exit_price=row.exit_price,
                 contracts=row.contracts,
                 pnl=row.pnl,
-                symbol=row.symbol,
+                symbol=symbol_norm,
             )
 
             inserted += 1
