@@ -56,15 +56,31 @@ def _parse_csv_timestamp(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
 
-    # Tradovate format: "12/09/2025 11:50:16"
-    dt_naive = datetime.strptime(s.strip(), "%m/%d/%Y %H:%M:%S")
+    s = s.strip()
 
-    # Treat this as America/Vancouver local time 
+    # 1) Try Topstep-style: "10/22/2025 00:20:00 -07:00"
+    try:
+        dt_with_tz = datetime.strptime(s, "%m/%d/%Y %H:%M:%S %z")
+        utc_dt = dt_with_tz.astimezone(timezone.utc)
+        print(
+            f"CSV timestamp (Topstep) raw={s!r} -> utc={utc_dt.isoformat()}"
+        )
+        return utc_dt
+    except ValueError:
+        # not Topstep format, fall through to Tradovate
+        pass
+
+    # 2) Fallback: Tradovate-style without offset: "12/09/2025 11:50:16"
+    dt_naive = datetime.strptime(s, "%m/%d/%Y %H:%M:%S")
+
+    # Treat as America/Vancouver local (PST = UTC-8 in December)
     local_tz = timezone(timedelta(hours=-8))
     local_dt = dt_naive.replace(tzinfo=local_tz)
-
-    # Convert to UTC for storage
     utc_dt = local_dt.astimezone(timezone.utc)
+
+    print(
+        f"CSV timestamp (Tradovate) raw={s!r} -> local={local_dt.isoformat()} -> utc={utc_dt.isoformat()}"
+    )
 
     return utc_dt
 
