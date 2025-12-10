@@ -62,3 +62,21 @@ class UpdateTradeBody(BaseModel):
     contracts: Optional[int] = None
     pnl: Optional[float] = None
     symbol: Optional[str] = None
+
+class CsvImportRow(BaseModel):
+    symbol: str
+    side: str  # "buy" | "sell"
+    pnl: float
+    entry_time: Optional[str] = None
+    exit_time: Optional[str] = None
+    entry_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    contracts: Optional[int] = None
+    duration: Optional[int] = None
+
+class CsvImportRequest(BaseModel):
+    rows: List[CsvImportRow]
+
+class CsvImportResult(BaseModel):
+    insertedCount: int
+    failedCount: int

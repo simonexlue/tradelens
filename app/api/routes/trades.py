@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from ...utils.sessions import infer_session_from_entry
-from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody
+from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody, CsvImportRequest, CsvImportResult, CsvImportRow
 from ...schemas.images import CreateImageBody, CreateImageResponse
 from ...schemas.analysis import AnalysisResponse, AnalyzeTradeBody
 from ...schemas.calendar import CalendarResponse
@@ -52,6 +52,21 @@ def _ensure_aware(dt: datetime) -> datetime:
         return dt.replace(tzinfo=timezone.utc)
     return dt
 
+def _parse_csv_timestamp(s: Optional[str]) -> Optional[datetime]:
+    if not s:
+        return None
+
+    # Tradovate format: "12/09/2025 11:50:16"
+    dt_naive = datetime.strptime(s.strip(), "%m/%d/%Y %H:%M:%S")
+
+    # Treat this as America/Vancouver local time 
+    local_tz = timezone(timedelta(hours=-8))
+    local_dt = dt_naive.replace(tzinfo=local_tz)
+
+    # Convert to UTC for storage
+    utc_dt = local_dt.astimezone(timezone.utc)
+
+    return utc_dt
 
 # ----------------------------------------- GET -----------------------------------------
 @router.get("/")
@@ -202,6 +217,63 @@ def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_t
     )
 
     return CreateTradeResponse(tradeId=tid)
+
+@router.post("/import-csv", response_model=CsvImportResult)
+async def import_trades_csv(
+    payload: CsvImportRequest,
+    user_id: str = Depends(verify_supabase_token),
+):
+    inserted = 0
+    failed = 0
+
+    for row in payload.rows:
+        try:
+            # 1) derive outcome from pnl
+            if row.pnl > 0:
+                outcome = "win"
+            elif row.pnl < 0:
+                outcome = "loss"
+            else:
+                outcome = "breakeven"
+
+            # 2) timestamps from CSV 
+            taken_at = _parse_csv_timestamp(row.entry_time) or datetime.now(
+                timezone.utc
+            )
+            exit_at = _parse_csv_timestamp(row.exit_time)
+
+            # 3) try to infer session, but do NOT fail the row if it errors
+            session = None
+            try:
+                session = infer_session_from_entry(taken_at)
+            except ValueError as e:
+                print("CSV import: session inference failed, continuing:", e)
+                session = None
+
+            # 4) actually insert the trade
+            insert_trade(
+                user_id=user_id,
+                note="",  # no note from CSV
+                taken_at=taken_at,
+                exit_at=exit_at,
+                outcome=outcome,
+                strategies=None,
+                session=session,
+                mistakes=None,
+                side=row.side,
+                entry_price=row.entry_price,
+                exit_price=row.exit_price,
+                contracts=row.contracts,
+                pnl=row.pnl,
+                symbol=row.symbol,
+            )
+
+            inserted += 1
+        except Exception as e:
+            print("CSV import row failed:", repr(e))
+            failed += 1
+
+    return CsvImportResult(insertedCount=inserted, failedCount=failed)
 
 
 @router.post("/{trade_id}/images", response_model=CreateImageResponse, status_code=201)
