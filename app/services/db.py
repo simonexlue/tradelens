@@ -54,6 +54,7 @@ def insert_trade(
     contracts: Optional[int],
     pnl: Optional[float],
     symbol: Optional[str],
+    account_id: Optional[str] = None,
 ) -> uuid.UUID:
 
     payload: Dict[str, Any] = {
@@ -94,6 +95,9 @@ def insert_trade(
 
     if symbol is not None:
         payload["symbol"] = symbol
+
+    if account_id is not None:
+        payload["account_id"] = account_id
 
     res = supabase.table("trades").insert(payload).execute()
     data = res.data or []
@@ -742,3 +746,78 @@ def fetch_trade_calendar(
 
     # Sort by date
     return sorted(buckets.values(), key=lambda d: d["date"])
+
+def get_user_accounts(user_id: str) -> List[Dict[str, Any]]:
+    """Return all accounts for a given user, newest first."""
+    assert supabase is not None
+
+    try:
+        resp = (
+            supabase.table("accounts")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching accounts: {e.message}")
+
+    return resp.data or []
+
+
+def create_user_account(user_id: str, account_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create a new account row for this user and return the inserted row.
+    account_data is expected to come from AccountCreate.model_dump().
+    """
+    if supabase is None:
+        raise RuntimeError("Supabase client not initialized")
+
+    payload: Dict[str, Any] = {
+        "user_id": user_id,
+        "label": account_data.get("label"),
+        "provider": account_data.get("provider") or "custom",
+        "account_type": account_data.get("account_type"),
+        "size": account_data.get("size"),
+    }
+
+    res = supabase.table("accounts").insert(payload).execute()
+    data = res.data or []
+    if not data or "id" not in data[0]:
+        raise RuntimeError(f"create_user_account_failed: {getattr(res, 'error', None)}")
+
+    return data[0]
+
+
+def ensure_account_belongs_to_user(
+    account_id: Optional[str],
+    user_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    If account_id is provided, verify it exists and belongs to this user.
+    Returns the account row, or None if account_id is None.
+    """
+    if account_id is None:
+        return None
+
+    assert supabase is not None
+
+    try:
+        resp = (
+            supabase.table("accounts")
+            .select("*")
+            .eq("id", account_id)
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=f"Error validating account: {e.message}")
+    except Exception:
+        # supabase-py throws when .single() finds no rows
+        raise HTTPException(status_code=404, detail="Account not found for this user")
+
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Account not found for this user")
+
+    return resp.data

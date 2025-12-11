@@ -40,6 +40,10 @@ class CreateTradeBody(BaseModel):
         description="Profit and loss in currency",
     )
     symbol: Optional[str] = None
+    accountId: Optional[uuid.UUID] = Field(
+        default=None,
+        description="Account this trade belongs to (accounts.id)",
+    )
 
 
 class CreateTradeResponse(BaseModel):
@@ -76,7 +80,9 @@ class CsvImportRow(BaseModel):
 
 class CsvImportRequest(BaseModel):
     rows: List[CsvImportRow]
+    accountId: Optional[uuid.UUID] = None
 
 class CsvImportResult(BaseModel):
     insertedCount: int
     failedCount: int
+    skippedCount: int

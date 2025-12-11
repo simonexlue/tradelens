@@ -21,6 +21,7 @@ from ...services.db import (
     fetch_trade_filters,
     fetch_trade_calendar,
     trade_exists_for_user,
+    ensure_account_belongs_to_user,
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -63,9 +64,6 @@ def _parse_csv_timestamp(s: Optional[str]) -> Optional[datetime]:
     try:
         dt_with_tz = datetime.strptime(s, "%m/%d/%Y %H:%M:%S %z")
         utc_dt = dt_with_tz.astimezone(timezone.utc)
-        print(
-            f"CSV timestamp (Topstep) raw={s!r} -> utc={utc_dt.isoformat()}"
-        )
         return utc_dt
     except ValueError:
         # not Topstep format, fall through to Tradovate
@@ -231,6 +229,7 @@ def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_t
         contracts=body.contracts,
         pnl=body.pnl,
         symbol=body.symbol,
+        account_id=str(body.accountId) if body.accountId is not None else None,
     )
 
     return CreateTradeResponse(tradeId=tid)
@@ -242,6 +241,12 @@ async def import_trades_csv(
 ):
     inserted = 0
     failed = 0
+    duplicates = 0
+
+    # normalize & validate the account for this user (if provided)
+    account_id = str(payload.accountId) if payload.accountId else None
+    ensure_account_belongs_to_user(account_id=account_id, user_id=user_id)
+
 
     # Avoid duplicates within this CSV (optional but fine to keep)
     seen_keys = set()
@@ -262,7 +267,7 @@ async def import_trades_csv(
 
             if dedupe_key in seen_keys:
                 print("CSV import: duplicate row in file skipped:", dedupe_key)
-                failed += 1
+                duplicates += 1
                 continue
 
             seen_keys.add(dedupe_key)
@@ -306,7 +311,7 @@ async def import_trades_csv(
                     row.exit_price,
                     row.contracts,
                 )
-                failed += 1
+                duplicates += 1
                 continue
 
             # 3) try to infer session, but do NOT fail the row if it errors
@@ -333,6 +338,7 @@ async def import_trades_csv(
                 contracts=row.contracts,
                 pnl=row.pnl,
                 symbol=symbol_norm,
+                account_id=account_id,
             )
 
             inserted += 1
@@ -340,7 +346,7 @@ async def import_trades_csv(
             print("CSV import row failed:", repr(e))
             failed += 1
 
-    return CsvImportResult(insertedCount=inserted, failedCount=failed)
+    return CsvImportResult(insertedCount=inserted, failedCount=failed, skippedCount=duplicates)
 
 
 @router.post("/{trade_id}/images", response_model=CreateImageResponse, status_code=201)
