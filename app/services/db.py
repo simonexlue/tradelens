@@ -608,11 +608,16 @@ def fetch_trade_filters(user_id: str) -> Dict[str, Any]:
       - sessions
       - strategies
       - symbols
+      - accounts (objects: { id, name })
     All deduped and sorted.
     """
+    if supabase is None:
+        raise RuntimeError("Supabase client not initialized")
+
+    # 1) Pull minimal fields from trades table
     res = (
         supabase.table("trades")
-        .select("outcome, session, strategies, symbol")
+        .select("outcome, session, strategies, symbol, account_id")
         .eq("user_id", user_id)
         .execute()
     )
@@ -623,6 +628,7 @@ def fetch_trade_filters(user_id: str) -> Dict[str, Any]:
     session_set: Set[str] = set()
     strategy_set: Set[str] = set()
     symbol_set: Set[str] = set()
+    account_ids: Set[str] = set()
 
     for r in rows:
         # Outcomes
@@ -653,16 +659,39 @@ def fetch_trade_filters(user_id: str) -> Dict[str, Any]:
             if s:
                 symbol_set.add(s)
 
+        # Accounts
+        acc_id = r.get("account_id")
+        if acc_id:
+            account_ids.add(str(acc_id))
+
     outcomes = sorted(outcome_set)
     sessions = sorted(session_set)
     strategies = sorted(strategy_set, key=lambda x: x.lower())
     symbols = sorted(symbol_set)
+
+    # 2) Fetch account details for those IDs
+    accounts: List[Dict[str, Any]] = []
+    if account_ids:
+        try:
+            acc_res = (
+                supabase.table("accounts")
+                .select("id, label")
+                .in_("id", list(account_ids))
+                .eq("user_id", user_id)
+                .order("label", desc=False)
+                .execute()
+            )
+            accounts = acc_res.data or []
+        except APIError as e:
+            print("fetch_trade_filters accounts query failed:", e)
+            accounts = []
 
     return {
         "outcomes": outcomes,
         "sessions": sessions,
         "strategies": strategies,
         "symbols": symbols,
+        "accounts": accounts,
     }
 
 def fetch_trade_calendar(
