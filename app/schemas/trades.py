@@ -86,3 +86,9 @@ class CsvImportResult(BaseModel):
     insertedCount: int
     failedCount: int
     skippedCount: int
+
+class TradeStatsResponse(BaseModel):
+    todayPnl: float
+    weekPnl: float
+    winRateLast30: float
+    avgPnlLast30: float #change to R multiple later

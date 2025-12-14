@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from ...utils.sessions import infer_session_from_entry
-from ...schemas.trades import CreateTradeBody, CreateTradeResponse, UpdateTradeBody, CsvImportRequest, CsvImportResult, CsvImportRow
+from ...schemas.trades import (
+    CreateTradeBody, 
+    CreateTradeResponse, 
+    UpdateTradeBody, 
+    CsvImportRequest, 
+    CsvImportResult, 
+    CsvImportRow, 
+    TradeStatsResponse,
+    )
 from ...schemas.images import CreateImageBody, CreateImageResponse
 from ...schemas.analysis import AnalysisResponse, AnalyzeTradeBody
 from ...schemas.calendar import CalendarResponse
@@ -22,6 +30,7 @@ from ...services.db import (
     fetch_trade_calendar,
     trade_exists_for_user,
     ensure_account_belongs_to_user,
+    compute_trade_stats,
 )
 from ...core.auth import verify_supabase_token
 from ...services.aws import delete_object, get_object_bytes
@@ -153,6 +162,20 @@ def list_trade_filters(
     """
     filters = fetch_trade_filters(user_id=user_id)
     return filters 
+
+@router.get("/stats")
+def get_trade_stats(
+    user_id: str = Depends(verify_supabase_token),
+): 
+    """
+    High-level stats for the dashboard:
+    - todayPnl
+    - weekPnl
+    - winRateLast30
+    - avgPnlLast30
+    """
+    stats = compute_trade_stats(user_id=user_id)
+    return stats
 
 @router.get("/calendar", response_model=CalendarResponse)
 def get_trade_calendar(

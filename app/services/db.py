@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any, Set
 
 from supabase import create_client, Client
@@ -775,6 +775,95 @@ def fetch_trade_calendar(
 
     # Sort by date
     return sorted(buckets.values(), key=lambda d: d["date"])
+
+def compute_trade_stats(user_id: str) -> Dict[str, float]:
+    """
+    Compute high-level stats for the dashboard:
+
+      - todayPnl: sum of pnl for trades taken today (UTC)
+      - weekPnl: sum of pnl for trades taken from start of this week (Mon, UTC) to now
+      - winRateLast30: wins / N for the last N trades (N <= 30)
+      - avgPnlLast30: average P&L over the last N trades (N <= 30)
+    """
+    assert supabase is not None
+
+    now = datetime.now(timezone.utc)
+
+    # Start of today (UTC)
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    tomorrow_start = today_start + timedelta(days=1)
+
+    #Start of week (Monday UTC)
+    weekday = today_start.weekday() # Monday =0
+    week_start = today_start - timedelta(days=weekday)
+
+    # Today Pnl
+    today_res = (
+        supabase.table("trades")
+        .select("pnl", "taken_at")
+        .eq("user_id", user_id)
+        .gte("taken_at", today_start.isoformat())
+        .lt("taken_at", tomorrow_start.isoformat())
+        .execute()
+    )
+    today_rows = today_res.data or []
+
+    def _sum_pnl(rows: List[Dict[str, Any]]) -> float:
+        total = 0.0
+        for r in rows:
+            try: 
+                val = float(r.get("pnl") or 0.0)
+            except (TypeError, ValueError):
+                val = 0.0
+            total += val
+        return total
+    today_pnl = _sum_pnl(today_rows)
+        # --- Week P&L (from Monday to now) ---
+    week_res = (
+        supabase.table("trades")
+        .select("pnl, taken_at")
+        .eq("user_id", user_id)
+        .gte("taken_at", week_start.isoformat())
+        .lt("taken_at", tomorrow_start.isoformat())
+        .execute()
+    )
+    week_rows = week_res.data or []
+    week_pnl = _sum_pnl(week_rows)
+
+    # --- Last 30 trades: win rate + avg P&L ---
+    last_res = (
+        supabase.table("trades")
+        .select("pnl")
+        .eq("user_id", user_id)
+        .order("taken_at", desc=True)
+        .limit(30)
+        .execute()
+    )
+    last_rows = last_res.data or []
+
+    n_trades = len(last_rows)
+    wins = 0
+    pnl_sum_last = 0.0
+
+    for r in last_rows:
+        try:
+            pnl_val = float(r.get("pnl") or 0.0)
+        except (TypeError, ValueError):
+            pnl_val = 0.0
+
+        pnl_sum_last += pnl_val
+        if pnl_val > 0:
+            wins += 1
+
+    win_rate_last_30 = (wins / n_trades) if n_trades > 0 else 0.0
+    avg_pnl_last_30 = (pnl_sum_last / n_trades) if n_trades > 0 else 0.0
+
+    return {
+        "todayPnl": today_pnl,
+        "weekPnl": week_pnl,
+        "winRateLast30": win_rate_last_30,
+        "avgPnlLast30": avg_pnl_last_30,
+    }
 
 def get_user_accounts(user_id: str) -> List[Dict[str, Any]]:
     """Return all accounts for a given user, newest first."""
