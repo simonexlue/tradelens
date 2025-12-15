@@ -91,4 +91,4 @@ class TradeStatsResponse(BaseModel):
     todayPnl: float
     weekPnl: float
     winRateLast30: float
-    avgPnlLast30: float #change to R multiple later
+    profitFactor: float 

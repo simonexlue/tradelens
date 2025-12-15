@@ -169,10 +169,6 @@ def get_trade_stats(
 ): 
     """
     High-level stats for the dashboard:
-    - todayPnl
-    - weekPnl
-    - winRateLast30
-    - avgPnlLast30
     """
     stats = compute_trade_stats(user_id=user_id)
     return stats
