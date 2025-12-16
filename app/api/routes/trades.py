@@ -253,6 +253,8 @@ def create_trade(body: CreateTradeBody, user_id: str = Depends(verify_supabase_t
 
     return CreateTradeResponse(tradeId=tid)
 
+from collections import defaultdict
+...
 @router.post("/import-csv", response_model=CsvImportResult)
 async def import_trades_csv(
     payload: CsvImportRequest,
@@ -266,9 +268,11 @@ async def import_trades_csv(
     account_id = str(payload.accountId) if payload.accountId else None
     ensure_account_belongs_to_user(account_id=account_id, user_id=user_id)
 
-
-    # Avoid duplicates within this CSV (optional but fine to keep)
+    # Avoid duplicates within this CSV (identical rows)
     seen_keys = set()
+
+    # Step 1: normalize all rows first
+    normalized_rows = []
 
     for row in payload.rows:
         try:
@@ -291,49 +295,16 @@ async def import_trades_csv(
 
             seen_keys.add(dedupe_key)
 
-            # 1) derive outcome from pnl
-            if row.pnl > 0:
-                outcome = "win"
-            elif row.pnl < 0:
-                outcome = "loss"
-            else:
-                outcome = "breakeven"
+            # Normalize symbol
+            symbol_norm = (row.symbol or "").strip().upper()
 
-            # 2) timestamps from CSV 
+            # Timestamps from CSV
             taken_at = _parse_csv_timestamp(row.entry_time) or datetime.now(
                 timezone.utc
             )
             exit_at = _parse_csv_timestamp(row.exit_time)
 
-            # 2b) DB-level dedupe against past imports / manual trades
-            symbol_norm = (row.symbol or "").strip()
-
-            if trade_exists_for_user(
-                user_id=user_id,
-                symbol=symbol_norm,
-                side=row.side,
-                pnl=row.pnl,
-                taken_at=taken_at,
-                exit_at=exit_at,
-                entry_price=row.entry_price,
-                exit_price=row.exit_price,
-                contracts=row.contracts,
-            ):
-                print(
-                    "CSV import: DB duplicate skipped:",
-                    symbol_norm,
-                    row.side,
-                    row.pnl,
-                    taken_at.isoformat(),
-                    exit_at.isoformat() if exit_at else None,
-                    row.entry_price,
-                    row.exit_price,
-                    row.contracts,
-                )
-                duplicates += 1
-                continue
-
-            # 3) try to infer session, but do NOT fail the row if it errors
+            # Try to infer session, but do NOT fail the row if it errors
             session = None
             try:
                 session = infer_session_from_entry(taken_at)
@@ -341,7 +312,115 @@ async def import_trades_csv(
                 print("CSV import: session inference failed, continuing:", e)
                 session = None
 
-            # 4) actually insert the trade
+            normalized_rows.append(
+                {
+                    "symbol": symbol_norm,
+                    "side": row.side,
+                    "pnl": float(row.pnl),
+                    "taken_at": taken_at,
+                    "exit_at": exit_at,
+                    "entry_price": row.entry_price,
+                    "exit_price": row.exit_price,
+                    "contracts": row.contracts,
+                    "session": session,
+                }
+            )
+        except Exception as e:
+            print("CSV import row normalization failed:", repr(e))
+            failed += 1
+
+    # Step 2: group rows into logical trades
+    # Key: (symbol, side, taken_at_iso, account_id)
+    groups = defaultdict(list)
+    for r in normalized_rows:
+        key = (
+            r["symbol"],
+            r["side"],
+            r["taken_at"].isoformat(),
+            account_id or "",
+        )
+        groups[key].append(r)
+
+    # Step 3: aggregate each group into a single trade
+    for (symbol_norm, side, taken_at_iso, _acc_key), rows in groups.items():
+        try:
+            taken_at = rows[0]["taken_at"]
+
+            # Aggregate P&L
+            total_pnl = sum(r["pnl"] for r in rows)
+            total_pnl = round(total_pnl, 2)
+
+            # Outcome from aggregated P&L
+            if total_pnl > 0:
+                outcome = "win"
+            elif total_pnl < 0:
+                outcome = "loss"
+            else:
+                outcome = "breakeven"
+
+            # Latest exit time across partials
+            exit_ats = [r["exit_at"] for r in rows if r["exit_at"] is not None]
+            exit_at = max(exit_ats) if exit_ats else None
+
+            # Total contracts
+            total_contracts = sum((r["contracts"] or 0) for r in rows) or None
+
+            # Entry price: first non-null
+            entry_prices = [
+                r["entry_price"] for r in rows if r["entry_price"] is not None
+            ]
+            entry_price = entry_prices[0] if entry_prices else None
+
+            # Exit price: contracts-weighted average of non-null exit prices
+            weighted_sum = 0.0
+            weight = 0
+            for r in rows:
+                c = r["contracts"] or 0
+                if r["exit_price"] is not None and c > 0:
+                    weighted_sum += r["exit_price"] * c
+                    weight += c
+            exit_price = round(weighted_sum / weight, 2) if weight > 0 else None
+
+            # Session: reuse any inferred session, or try again as fallback
+            session = next(
+                (r["session"] for r in rows if r["session"] is not None), None
+            )
+            if session is None:
+                try:
+                    session = infer_session_from_entry(taken_at)
+                except ValueError as e:
+                    print("CSV import: session inference failed on group:", e)
+                    session = None
+
+            # DB-level dedupe against past imports / manual trades
+            if trade_exists_for_user(
+                user_id=user_id,
+                symbol=symbol_norm,
+                side=side,
+                pnl=total_pnl,
+                taken_at=taken_at,
+                exit_at=exit_at,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                contracts=total_contracts,
+                account_id=account_id,
+            ):
+                print(
+                    "CSV import: DB duplicate group skipped:",
+                    symbol_norm,
+                    side,
+                    total_pnl,
+                    taken_at.isoformat(),
+                    exit_at.isoformat() if exit_at else None,
+                    entry_price,
+                    exit_price,
+                    total_contracts,
+                    account_id,
+                )
+                duplicates += 1
+                continue
+
+            # Actually insert the aggregated logical trade
             insert_trade(
                 user_id=user_id,
                 note="",  # no note from CSV
@@ -351,18 +430,18 @@ async def import_trades_csv(
                 strategies=None,
                 session=session,
                 mistakes=None,
-                side=row.side,
-                entry_price=row.entry_price,
-                exit_price=row.exit_price,
-                contracts=row.contracts,
-                pnl=row.pnl,
+                side=side,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                contracts=total_contracts,
+                pnl=total_pnl,
                 symbol=symbol_norm,
                 account_id=account_id,
             )
 
             inserted += 1
         except Exception as e:
-            print("CSV import row failed:", repr(e))
+            print("CSV import group failed:", repr(e))
             failed += 1
 
     return CsvImportResult(insertedCount=inserted, failedCount=failed, skippedCount=duplicates)

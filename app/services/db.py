@@ -117,11 +117,11 @@ def trade_exists_for_user(
     entry_price: Optional[float],
     exit_price: Optional[float],
     contracts: Optional[int],
+    account_id: Optional[str] = None,
 ) -> bool:
     """
     Return True if a trade already exists for this user with the same
-    (symbol, side, pnl, taken_at, exit_at, entry_price, exit_price, contracts).
-    Used to dedupe CSV imports against past imports/manual entries.
+    (symbol, side, pnl, taken_at, exit_at, entry_price, exit_price, contracts, account_id).
 
     Only filter on fields that are not None. If a field is None
     here but set in the DB (or vice versa), it will NOT be considered
@@ -136,6 +136,9 @@ def trade_exists_for_user(
         .eq("pnl", pnl)
         .eq("taken_at", taken_at.isoformat())
     )
+
+    if account_id is not None:
+        q = q.eq("account_id", account_id)
 
     if exit_at is not None:
         q = q.eq("exit_at", exit_at.isoformat())
